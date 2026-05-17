@@ -1,0 +1,24 @@
+language: "en-US"
+early_access: false
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "Draft"
+  path_instructions:
+    - path: "**/*.sql"
+      instructions: |
+        - Ensure no raw DATABASE_URL or plain-text secrets are committed.
+        - Verify schema migrations include workspace_id for row-level security where applicable.
+    - path: "baseball/**/*.py"
+      instructions: |
+        - Ensure ingestion code separates source acquisition from canonical transformation.
+        - Use secret-manager or env variables for credentials.
+        - Do not log sensitive connection strings.
