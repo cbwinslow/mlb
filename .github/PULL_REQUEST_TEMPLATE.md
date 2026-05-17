@@ -1,4 +1,4 @@
-## Pull request checklist
+# Pull request checklist
 
 - [ ] I have read `CONTRIBUTING.md`.
 - [ ] SQL changes (if any) compile and apply in order (010 → 090).
