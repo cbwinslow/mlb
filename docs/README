@@ -1,72 +1,59 @@
-# Documentation Guide
+# Docs Directory Guide
 
 ## Purpose
 
-This directory contains the design and reference documents for the MLB analytics platform. Unlike the repository root README, which introduces the project as a whole, this file is specifically about how to use the documentation set. Unlike the SQL README, it is not about execution order or database deployment mechanics.
+This directory contains the written design and reference material for the MLB analytics platform. Unlike the root `README.md`, which explains the repository overall, this file is specifically about how to read and maintain the documentation set inside `docs/`.
 
-The documents in this folder are meant to explain intent, boundaries, and design choices before or alongside direct SQL inspection.
+This README should help contributors understand which document answers which kind of question.
 
-## What lives here
+## What belongs in `docs/`
 
-This folder should contain platform reference documents such as:
-- architecture,
-- data dictionary,
-- security,
-- ingestion,
-- modeling,
-- operations,
-- future deployment or API guides.
+The `docs/` folder is for explanatory material, design references, and subsystem guidance. It is the place for documents that explain why the platform is shaped the way it is.
 
-These files should help answer design questions like:
-- Why does a schema exist?
-- What responsibility belongs in each layer?
-- Which objects are global versus workspace-owned?
-- How should ingestion or modeling behave conceptually?
-- What operational and security assumptions shape the SQL design?
+Typical documents here include:
+- `architecture.md`
+- `data-dictionary.md`
+- `security.md`
+- `ingestion.md`
+- `modeling.md`
+- `operations.md`
 
-## Reading order
+Additional future files might include deployment, API, service-layout, testing, or migration guides.
 
-A sensible reading order for a new contributor is:
+## How to read the docs set
 
-1. `architecture.md` for the system shape.
-2. `data-dictionary.md` for schema and object-family meaning.
-3. `security.md` for ownership, access, and RLS direction.
-4. `ingestion.md` for source-loading behavior.
-5. `modeling.md` for ML and prediction design.
-6. `operations.md` for queues, polling, retries, and recovery.
+The best reading order is usually:
 
-This order moves from broad structure to focused subsystem guidance.
+1. `architecture.md` to understand the system shape.
+2. `data-dictionary.md` to understand schemas and object families.
+3. `security.md` to understand access boundaries and ownership.
+4. `ingestion.md` to understand how source data enters the platform.
+5. `modeling.md` to understand ML, prediction, and simulation design.
+6. `operations.md` to understand queues, polling, retries, and recovery.
 
-## How these docs should be used
+That sequence moves from broad orientation to subsystem detail.
 
-These documents are not meant to duplicate every line of SQL. Their job is to explain:
-- intent,
-- boundaries,
-- terminology,
-- subsystem responsibilities,
-- future implementation direction.
+## What this folder is not for
 
-When the SQL changes materially, the related doc should be updated so the design explanation stays aligned with the implementation.
+This folder is not the place for raw SQL implementation details or execution-order mechanics. Those belong in `sql/` and should be explained by the SQL-specific README there.
+
+The docs here should complement the SQL, not mirror every file line by line.
 
 ## Documentation standards
 
-Each major doc in this folder should be distinct and should have a clear job.
+Each doc in this folder should have a narrow, specific role.
 
-- `architecture.md` explains system structure.
-- `data-dictionary.md` explains schemas and table families.
-- `security.md` explains access control and isolation.
-- `ingestion.md` explains source acquisition and ingest control.
-- `modeling.md` explains prediction and simulation objects.
-- `operations.md` explains scheduling, queues, retries, and recovery.
+- `architecture.md` should explain overall structure.
+- `data-dictionary.md` should explain schema and table-family meaning.
+- `security.md` should explain permissions, ownership, and isolation.
+- `ingestion.md` should explain source-loading workflows.
+- `modeling.md` should explain predictive and simulation objects.
+- `operations.md` should explain jobs, queues, retries, and operational recovery.
 
-If two docs start sounding interchangeable, they should be revised until their roles are clearly different.
+If two files feel interchangeable, they should be revised until their jobs are clearly different.
 
-## Good maintenance practice
+## Maintenance guidance
 
-When adding a new document:
-- give it a narrow purpose,
-- state how it differs from nearby docs,
-- connect it to the relevant folder or schema,
-- avoid repeating the same opening language from another file.
+When changing the SQL design, update the related docs if the design meaning changed. When adding a new doc, give it a clear scope and make sure it does not simply restate another file with different headings.
 
-This helps keep the docs set useful instead of turning it into six versions of the same overview.
+The goal of this directory is clarity, not volume.

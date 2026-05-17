@@ -1,79 +1,60 @@
-# SQL Layer Guide
+# SQL Directory Guide
 
 ## Purpose
 
-This directory contains the SQL implementation for the MLB analytics platform. Unlike the repository root README, which explains the overall repo, and unlike the docs README, which explains the design-document set, this file is specifically about the database layer: how SQL files are organized, how they should be read, and how they should be applied.
+This directory contains the PostgreSQL implementation for the MLB analytics platform. Unlike the root `README.md`, which explains the full repository, and unlike `docs/README.md`, which explains the documentation set, this file is specifically about the SQL layer inside `sql/`.
 
-This folder is the implementation backbone of the project. It should define schemas, tables, constraints, indexes, functions, operational objects, and other persistent database contracts.
+This README should help contributors understand how to approach the SQL tree as an implementation surface rather than as a design essay.
 
-## What belongs here
+## What belongs in `sql/`
 
-The SQL directory should contain objects such as:
-- schema creation batches,
+The `sql/` folder should contain the persistent database-building assets for the project, such as:
+- schema creation scripts,
 - table-definition batches,
 - constraints and indexes,
-- triggers and functions,
+- functions and triggers,
 - views and materialized views,
-- seed or reference-data scripts where appropriate,
-- future migration or apply-order utilities.
+- operational database helpers,
+- any future migration/apply-order scripts.
 
-## SQL organization principles
+## How this folder should be organized
 
-The SQL layer should stay organized by responsibility and apply order, not by random accumulation.
+The SQL layer should be organized by dependency and execution logic, not by convenience alone.
 
-Good organizing principles include:
-- foundational schemas before dependent objects,
-- table creation before constraints that depend on them,
+Important organizing rules include:
+- schemas before dependent tables,
+- tables before dependent indexes and constraints,
 - functions before triggers that call them,
-- serving objects after canonical objects,
-- operational helpers after the structures they manage.
+- canonical objects before serving-layer marts,
+- operational support objects after the structures they manage.
 
-## How to read the SQL folder
+This helps contributors reason about apply order and failure recovery.
 
-A contributor reading this folder should be able to answer:
-- what gets created first,
-- which files are foundational,
-- which files define schemas versus functions,
-- which files are safe to rerun,
-- which files assume previous batches already ran.
+## How to use this folder
 
-That means naming and ordering matter a lot.
+A contributor working in `sql/` should be able to answer:
+- what file groups are foundational,
+- what order batches should run in,
+- which objects are raw versus staging versus canonical versus operational,
+- where reusable database logic lives,
+- what should be updated when a schema contract changes.
 
-## Expected SQL subareas
+If the folder layout does not make those answers obvious, the SQL tree needs better documentation or better structure.
 
-Typical subareas in this directory may include:
-- schema setup,
-- raw-source table creation,
-- staging and canonical warehouse objects,
-- ML and operational tables,
-- function libraries,
-- constraints and indexes,
-- serving-layer views or marts.
+## Relationship to `docs/`
 
-## Change discipline
+The SQL files are the implementation of the platform. The docs explain the reasoning behind them.
 
-Changes to this folder should be made carefully because SQL establishes long-term platform contracts.
+That means `sql/` should be used together with `docs/`:
+- change SQL when implementation changes are needed,
+- change docs when the conceptual meaning changes,
+- keep the two aligned so the repository stays understandable.
 
-Before adding or modifying SQL:
-- confirm the target schema and layer,
-- confirm whether the object is raw, staging, canonical, operational, or serving,
-- update the related docs when the design meaning changes,
-- avoid hiding important platform logic only inside application code.
+## Recommended next improvements
 
-## Future improvements
-
-This directory will benefit from additional support over time, including:
-- explicit apply-order documentation,
-- a migration strategy,
-- validation scripts,
-- test fixtures,
-- rollback or repair guidance,
-- automated linting or formatting.
-
-## Relationship to docs
-
-Use the SQL directory together with `docs/`.
-
-- The SQL files define the platform.
-- The docs explain why it is designed that way.
-- The two should evolve together rather than drifting apart.
+The SQL directory will benefit from more explicit repo-specific support over time, including:
+- a documented batch/apply order,
+- naming conventions for new SQL files,
+- validation or smoke-test scripts,
+- migration discipline for future schema changes,
+- clearer separation of foundational versus derived objects.
