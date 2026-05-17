@@ -1,17 +1,51 @@
 {
-  "project": {
-    "name": "mlb",
-    "description": "PostgreSQL-first MLB analytics platform"
+  "projectName": "mlb",
+  "description": "PostgreSQL analytics platform for MLB baseball data",
+  "provider": {
+    "name": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnvVar": "OPENROUTER_API_KEY",
+    "defaultModel": "nvidia/nemotron-3-super-120b-a12b:free",
+    "fallbackModels": [
+      "poolside/laguna-m.1:free",
+      "openai/gpt-oss-120b:free",
+      "minimax/minimax-m2.5:free",
+      "deepseek/deepseek-v4-flash:free",
+      "openrouter/free"
+    ]
   },
-  "instructions": [
-    "Never commit secrets, API keys, passwords, or tokens.",
-    "Never print raw DATABASE_URL to logs.",
-    "Use workspace_id for tenant separation in SQL tables.",
-    "Separate ingestion source acquisition from canonical transformation."
+  "architecture": {
+    "dataLayers": ["raw", "staging", "canonical", "mart"],
+    "agentLayer": "MCP",
+    "database": "PostgreSQL 16",
+    "language": "Python 3.12"
+  },
+  "rules": [
+    "Never hardcode secrets, API keys, or DATABASE_URL with credentials",
+    "Never log or print DATABASE_URL",
+    "All multi-tenant INSERT statements must include workspace_id",
+    "Ingestion must not mix source acquisition with canonical transformation",
+    "Always catch specific exceptions - never use bare except:",
+    "Raw schema is append-only - never UPDATE or DELETE from raw.*",
+    "Prefer psycopg3 for new database code",
+    "All new public functions must have docstrings"
   ],
-  "ignore": [
-    "data/**",
-    "output/**",
-    "*.csv"
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": { "DATABASE_URL": "${DATABASE_URL}" }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    }
+  },
+  "contextFiles": [
+    "README.md",
+    "pyproject.toml",
+    "baseball/**/*.py",
+    "sql/**/*.sql",
+    ".github/workflows/*.yml"
   ]
 }
