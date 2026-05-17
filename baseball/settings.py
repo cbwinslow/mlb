@@ -4,7 +4,7 @@ import enum
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import AnyUrl, Field
+from pydantic import AnyUrl, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +14,9 @@ class AppEnv(str, enum.Enum):
     PRODUCTION = "production"
 
 
-class DatabaseSettings(BaseSettings):
+class DatabaseSettings(BaseModel):
+    """Nested database config — inherits from BaseModel, not BaseSettings."""
+
     url: AnyUrl = Field(
         ..., alias="DATABASE_URL",
         description="SQLAlchemy-style database URL for the core PostgreSQL cluster.",
@@ -25,27 +27,25 @@ class DatabaseSettings(BaseSettings):
         description="Comma-separated list of schemas to include in the PostgreSQL search_path.",
     )
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
+class WorkspaceSettings(BaseModel):
+    """Nested workspace config — inherits from BaseModel, not BaseSettings."""
 
-class WorkspaceSettings(BaseSettings):
     default_workspace_code: str = Field(
         "local-dev",
         alias="DEFAULT_WORKSPACE_CODE",
         description="Logical workspace code used when a specific workspace is not provided.",
     )
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
+class OpsSettings(BaseModel):
+    """Nested ops config — inherits from BaseModel, not BaseSettings."""
 
-class OpsSettings(BaseSettings):
     default_queue_name: str = Field(
         "default",
         alias="DEFAULT_QUEUE_NAME",
         description="Default ops.jobqueue.queuename value for generic jobs.",
     )
-
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
 
 class AppSettings(BaseSettings):
@@ -67,7 +67,7 @@ class AppSettings(BaseSettings):
     workspace: WorkspaceSettings = Field(default_factory=WorkspaceSettings)
     ops: OpsSettings = Field(default_factory=OpsSettings)
 
-    model_config = SettingsConfigDict(env_prefix="BASEBALL_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
 
 
 @lru_cache(maxsize=1)

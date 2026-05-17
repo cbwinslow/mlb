@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import typer
 from rich.console import Console
@@ -14,8 +14,19 @@ app = typer.Typer(help="Baseball platform CLI")
 console = Console()
 
 
-SQL_ROOT = Path(__file__).resolve().parents[2] / "sql"
-TEST_SQL_ROOT = Path(__file__).resolve().parents[2] / "tests" / "sql"
+SQL_ROOT = Path(__file__).resolve().parents[1] / "sql"
+TEST_SQL_ROOT = Path(__file__).resolve().parents[1] / "tests" / "sql"
+
+
+def _mask_db_url(url: str) -> str:
+    """Return the database URL with the password replaced by ***."""
+    parsed = urlparse(str(url))
+    if parsed.password:
+        masked = parsed._replace(
+            netloc=parsed.netloc.replace(f":{parsed.password}@", ":***@")
+        )
+        return urlunparse(masked)
+    return str(url)
 
 
 @app.command("db-init")
@@ -33,7 +44,7 @@ def db_init() -> None:
     table.add_column("Step")
     table.add_column("Value")
     table.add_row("Environment", settings.env.value)
-    table.add_row("Database URL", str(settings.database.url))
+    table.add_row("Database URL", _mask_db_url(str(settings.database.url)))
     table.add_row("SQL root", str(SQL_ROOT))
 
     console.print(table)
@@ -54,7 +65,7 @@ def db_smoke() -> None:
     table.add_column("Step")
     table.add_column("Value")
     table.add_row("Environment", settings.env.value)
-    table.add_row("Database URL", str(settings.database.url))
+    table.add_row("Database URL", _mask_db_url(str(settings.database.url)))
     table.add_row("Tests root", str(TEST_SQL_ROOT))
 
     console.print(table)
