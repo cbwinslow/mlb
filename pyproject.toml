@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.20.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "baseball"
+version = "0.1.0"
+description = "Python application layer for the MLB analytics PostgreSQL platform"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Blaine Winslow" }
+]
+keywords = ["mlb", "baseball", "analytics", "postgresql", "mlops"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Information Analysis"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/cbwinslow/mlb"
+"Source" = "https://github.com/cbwinslow/mlb"
+
+[project.scripts]
+baseball = "baseball.cli:app"
+
+[project.dependencies]
+sqlalchemy = ">=2.0"
+asyncpg = ">=0.29"
+typer = { version = ">=0.12", extras = ["all"] }
+pydantic = ">=2.8"
+pydantic-settings = ">=2.4"
+python-dotenv = ">=1.0"
+rich = ">=13.7"
+
+[tool.hatch.build.targets.wheel]
+packages = ["baseball"]
