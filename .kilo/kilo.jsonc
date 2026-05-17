@@ -1,0 +1,17 @@
+{
+  "project": {
+    "name": "mlb",
+    "description": "PostgreSQL-first MLB analytics platform"
+  },
+  "instructions": [
+    "Never commit secrets, API keys, passwords, or tokens.",
+    "Never print raw DATABASE_URL to logs.",
+    "Use workspace_id for tenant separation in SQL tables.",
+    "Separate ingestion source acquisition from canonical transformation."
+  ],
+  "ignore": [
+    "data/**",
+    "output/**",
+    "*.csv"
+  ]
+}
