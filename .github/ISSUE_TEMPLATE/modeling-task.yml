@@ -1,0 +1,50 @@
+name: Modeling task
+
+description: Define or update a modeling problem, featureset, or run
+
+labels:
+  - area:modeling
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for work related to `ml.problemdefinition`, `ml.featureset`, datasets, training runs, backtests, predictions, or simulations.[cite:2]
+
+  - type: input
+    id: problem
+    attributes:
+      label: Problem code
+      description: Existing or proposed `ml.problemdefinition.problemcode`.
+      placeholder: e.g. moneyline_win_prob
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is the modeling task and what business question does it answer?
+    validations:
+      required: true
+
+  - type: textarea
+    id: features
+    attributes:
+      label: Feature sets
+      description: Which `ml.featureset`(s) are involved, or what new ones are needed?[cite:2]
+
+  - type: textarea
+    id: datasets
+    attributes:
+      label: Datasets and splits
+      description: Which `ml.datasetdefinition`/`ml.datasetsplit` objects are in scope?[cite:2]
+
+  - type: textarea
+    id: runs
+    attributes:
+      label: Runs and evaluation
+      description: Training, backtesting, or prediction runs to be performed.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
