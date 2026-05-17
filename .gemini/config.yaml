@@ -1,0 +1,13 @@
+code_review:
+  enabled: true
+  trigger: "pull_request_opened"
+  severity_threshold: "medium"
+  max_comments: 10
+  instructions: |
+    Prioritize catching security bugs like hardcoded secrets or database URLs.
+    Check that Python ingestion workers use environment variables for connections.
+    Ensure we do not log PII or credentials.
+ignore_patterns:
+  - "output/**"
+  - "data/**"
+  - "*.csv"
