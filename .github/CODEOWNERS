@@ -1,0 +1,9 @@
+# Default owner
+* @cbwinslow
+
+# SQL and data platform changes
+/sql/ @cbwinslow
+/docs/ @cbwinslow
+/baseball/ @cbwinslow
+/.github/ @cbwinslow
+*.md @cbwinslow
