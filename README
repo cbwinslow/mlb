@@ -1,0 +1,60 @@
+# MLB Analytics Platform
+
+## Overview
+
+This repository contains the database-first foundation for a multi-user MLB analytics and prediction platform. The current emphasis is on PostgreSQL schema design, source-ingestion planning, modeling support, and operational controls needed for sabermetrics, forecasting, live updates, and future application or agent layers.
+
+The repo is intentionally organized around durable platform assets instead of application code first. The SQL layer defines the long-term data contracts, while the docs layer explains how those contracts should be interpreted and extended.
+
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| `docs/` | Design and reference documents for architecture, schema intent, security, ingestion, modeling, and operations. |
+| `sql/` | SQL batches, migrations, functions, constraints, and other database objects that build the platform. |
+
+## Current focus
+
+The repository currently emphasizes:
+- database architecture,
+- source-ingestion design,
+- canonical warehouse planning,
+- modeling and prediction registry design,
+- queue and worker operations,
+- future multi-user and API readiness.
+
+This is the correct order for a serious analytics platform because stable schemas and operational contracts are harder to retrofit later than notebooks, scripts, or service code.
+
+## How to navigate this repo
+
+Use the repository root as the orientation point.
+
+- Start in `docs/` if the goal is to understand design intent.
+- Start in `sql/` if the goal is to inspect implementation details.
+- Read both together when changing schema structure, because the docs explain the reasoning behind the SQL layout.
+
+## Working style
+
+This repository is best treated as a staged platform build.
+
+1. Define the database shape clearly.
+2. Document the design intent.
+3. Implement SQL in manageable batches.
+4. Add Python workers, APIs, and agents on top of stable contracts.
+
+## Near-term roadmap
+
+The next likely repository-level steps are:
+- align all docs to the live SQL tree,
+- add SQL execution guidance and ordering notes,
+- add Python service and worker structure,
+- add a proper migration/apply workflow,
+- add testing and validation scaffolding.
+
+## Folder guidance
+
+The child folders each need their own README because they serve different roles.
+
+- The root README should explain the repository as a whole.
+- `docs/README.md` should explain the documentation set and how to read it.
+- `sql/README.md` should explain how the SQL layer is organized and applied.

@@ -1,0 +1,79 @@
+# SQL Layer Guide
+
+## Purpose
+
+This directory contains the SQL implementation for the MLB analytics platform. Unlike the repository root README, which explains the overall repo, and unlike the docs README, which explains the design-document set, this file is specifically about the database layer: how SQL files are organized, how they should be read, and how they should be applied.
+
+This folder is the implementation backbone of the project. It should define schemas, tables, constraints, indexes, functions, operational objects, and other persistent database contracts.
+
+## What belongs here
+
+The SQL directory should contain objects such as:
+- schema creation batches,
+- table-definition batches,
+- constraints and indexes,
+- triggers and functions,
+- views and materialized views,
+- seed or reference-data scripts where appropriate,
+- future migration or apply-order utilities.
+
+## SQL organization principles
+
+The SQL layer should stay organized by responsibility and apply order, not by random accumulation.
+
+Good organizing principles include:
+- foundational schemas before dependent objects,
+- table creation before constraints that depend on them,
+- functions before triggers that call them,
+- serving objects after canonical objects,
+- operational helpers after the structures they manage.
+
+## How to read the SQL folder
+
+A contributor reading this folder should be able to answer:
+- what gets created first,
+- which files are foundational,
+- which files define schemas versus functions,
+- which files are safe to rerun,
+- which files assume previous batches already ran.
+
+That means naming and ordering matter a lot.
+
+## Expected SQL subareas
+
+Typical subareas in this directory may include:
+- schema setup,
+- raw-source table creation,
+- staging and canonical warehouse objects,
+- ML and operational tables,
+- function libraries,
+- constraints and indexes,
+- serving-layer views or marts.
+
+## Change discipline
+
+Changes to this folder should be made carefully because SQL establishes long-term platform contracts.
+
+Before adding or modifying SQL:
+- confirm the target schema and layer,
+- confirm whether the object is raw, staging, canonical, operational, or serving,
+- update the related docs when the design meaning changes,
+- avoid hiding important platform logic only inside application code.
+
+## Future improvements
+
+This directory will benefit from additional support over time, including:
+- explicit apply-order documentation,
+- a migration strategy,
+- validation scripts,
+- test fixtures,
+- rollback or repair guidance,
+- automated linting or formatting.
+
+## Relationship to docs
+
+Use the SQL directory together with `docs/`.
+
+- The SQL files define the platform.
+- The docs explain why it is designed that way.
+- The two should evolve together rather than drifting apart.
