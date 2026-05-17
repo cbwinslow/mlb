@@ -1,50 +1,50 @@
 # MLB Analytics Platform
 
+A PostgreSQL-first database platform for baseball analytics, sabermetric research, prediction modeling, and live game workflows.
+
 ## Overview
 
-This repository contains the database-first foundation for an MLB analytics and prediction platform built around PostgreSQL. The current repository state is focused on two core areas: `docs/` for design/reference material and `sql/` for the actual database implementation.
+This repository contains the database foundation and design documentation for an MLB analytics and prediction platform. The platform treats PostgreSQL as the central system of record — not a passive storage layer, but the durable home for baseball entities, ingestion history, model metadata, operational workflows, access boundaries, and service contracts.
 
-At the time of writing, the repository is intentionally lightweight at the root level and does not yet include a root README in GitHub, which makes navigation harder than it needs to be. This file is intended to solve that by giving the repository a clear front door.
-
-## Repository structure
-
-The live repository currently exposes two top-level working directories:
+The current repository is organized around two top-level working directories:
 
 | Path | Role |
-|---|---|
-| `docs/` | Design documents that explain architecture, schema boundaries, security, ingestion, modeling, and operations. |
-| `sql/` | SQL implementation for schemas, tables, functions, constraints, indexes, and other database objects. |
+|------|------|
+| `docs/` | Design and reference documents covering architecture, schema boundaries, security, ingestion, modeling, and operations |
+| `sql/` | SQL implementation for schemas, tables, functions, constraints, indexes, and all other database objects |
 
-This root README is intentionally not a replacement for either child README. Its job is to explain the repository as a whole and point contributors to the right starting place.
+## What the platform supports
 
-## What this repository is for
-
-This project is aimed at building a serious baseball analytics platform rather than a collection of ad hoc scripts. The repository is structured to support:
-- historical and live baseball data ingestion,
-- canonical baseball entities and event storage,
-- sabermetric and prediction workflows,
-- operational control for loaders and workers,
-- future multi-user, API, and agent-driven use cases.
+- Historical and live baseball data ingestion (Retrosheet, Chadwick, Lahman, MLB StatsAPI, Statcast, FanGraphs, Baseball Reference, ESPN, odds providers)
+- Canonical baseball entity and event storage
+- Sabermetric and prediction model workflows
+- Durable operational control for loaders, workers, and live polling
+- Multi-user, API, and agent-driven use cases (future)
 
 ## Where to start
 
-Different contributors should start in different places:
+| Goal | Starting point |
+|------|---------------|
+| Understand the overall system design | `docs/architecture.md` |
+| Know what schemas and tables exist | `docs/data-dictionary.md` |
+| Understand security and access control | `docs/security.md` |
+| Understand how data is ingested | `docs/ingestion.md` |
+| Understand modeling and prediction design | `docs/modeling.md` |
+| Understand job scheduling and operations | `docs/operations.md` |
+| Apply the SQL to a database | `sql/README.md` |
 
-- Start in `docs/` to understand the design intent before changing structure.
-- Start in `sql/` to inspect the concrete implementation of the platform.
-- Read both when reviewing or changing the database design, because the docs provide the reasoning that the SQL alone does not fully capture.
+## Technology
 
-## Current repository phase
+- **Database:** PostgreSQL
+- **Required extensions:** `pgcrypto`, `citext`, `btree_gist`
+- **Optional extensions:** `pgaudit`, `pg_cron`, `pgvector`, TimescaleDB
+- **Planned application layer:** Python, FastAPI, ingestion workers, agent tool layer
 
-The visible repository state suggests this project is still in the foundational platform phase. The emphasis is on establishing the database contracts and written design guidance first, before wider application scaffolding, Python services, or public API layers are added.
+## Current phase
 
-That is a reasonable build order for this kind of system because schema and operational design are expensive to undo later.
+This project is in the foundational platform phase. The SQL schema design and documentation are ahead of the application layer. Immediate next steps are:
 
-## Recommended next additions
-
-The next helpful repository-level improvements are:
-- keep this root README in place,
-- add `docs/README.md` as the index for the documentation set,
-- add `sql/README.md` as the guide to SQL organization and apply order,
-- add root-level project metadata such as a short description and topics in GitHub,
-- later add service, worker, and testing layers once the SQL design stabilizes.
+1. Define the Python project structure for ingestion workers and API service
+2. Map worker responsibilities to `ops` and `meta` contracts
+3. Define the FastAPI service boundary against `api`, `auth`, and `mart`
+4. Decide which operations are exposed to agents as tools rather than raw SQL access

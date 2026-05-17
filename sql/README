@@ -1,60 +1,77 @@
-# SQL Directory Guide
+# SQL Directory
 
-## Purpose
+This directory contains all SQL for the MLB analytics platform database. Files are organized into numbered folders so the apply order is explicit and reproducible. Within each folder, files are numbered for the same reason.
 
-This directory contains the PostgreSQL implementation for the MLB analytics platform. Unlike the root `README.md`, which explains the full repository, and unlike `docs/README.md`, which explains the documentation set, this file is specifically about the SQL layer inside `sql/`.
+## How to apply
 
-This README should help contributors understand how to approach the SQL tree as an implementation surface rather than as a design essay.
+Run folders in ascending numeric order. Within each folder, run files in ascending numeric order. Every file is wrapped in a transaction so failures are isolated.
 
-## What belongs in `sql/`
+Apply a single file:
 
-The `sql/` folder should contain the persistent database-building assets for the project, such as:
-- schema creation scripts,
-- table-definition batches,
-- constraints and indexes,
-- functions and triggers,
-- views and materialized views,
-- operational database helpers,
-- any future migration/apply-order scripts.
+```bash
+psql -U your_user -d your_db -f sql/010_extensions/001_extensions.sql
+```
 
-## How this folder should be organized
+Apply an entire folder in order:
 
-The SQL layer should be organized by dependency and execution logic, not by convenience alone.
+```bash
+for f in sql/010_extensions/*.sql; do psql -U your_user -d your_db -f "$f"; done
+```
 
-Important organizing rules include:
-- schemas before dependent tables,
-- tables before dependent indexes and constraints,
-- functions before triggers that call them,
-- canonical objects before serving-layer marts,
-- operational support objects after the structures they manage.
+Repeat for each numbered folder in sequence.
 
-This helps contributors reason about apply order and failure recovery.
+## Folder map
 
-## How to use this folder
+| Folder | Purpose |
+|--------|---------|
+| `010_extensions/` | Required extensions (`pgcrypto`, `citext`, `btree_gist`) and optional ones (`pgaudit`, `pg_cron`, `pgvector`) |
+| `020_schemas/` | Schema creation for all logical layers: `meta`, `ref`, `raw_*`, `stg`, `core`, `ml`, `ops`, `auth`, `api`, `mart`, `util` |
+| `030_meta/` | Source system registry, ingest runs, source files, payload hash deduplication, and ingest errors |
+| `040_raw/` | Source-faithful landing tables for Retrosheet, Chadwick, Statcast, MLB StatsAPI, Lahman, FanGraphs, Baseball Reference, ESPN, and odds providers |
+| `050_staging/` | Identity bridges and source conformance tables that reconcile player, team, venue, and game identifiers across sources |
+| `060_core/` | Canonical baseball warehouse: players, teams, venues, games, rosters, plate appearances, pitches, and source lineage maps |
+| `070_ml_ops/` | Model registry, feature store, training runs, backtests, predictions, simulations, live polling, job scheduling, API contracts, and serving views |
+| `080_functions/` | All `util.*` functions: timestamp triggers, hashing helpers, ingest lifecycle, validation, normalization, key construction, and ML/ops helpers |
+| `090_constraints_indexes/` | Indexes and constraints separated from table DDL for independent iteration and tuning |
 
-A contributor working in `sql/` should be able to answer:
-- what file groups are foundational,
-- what order batches should run in,
-- which objects are raw versus staging versus canonical versus operational,
-- where reusable database logic lives,
-- what should be updated when a schema contract changes.
+## Schema quick reference
 
-If the folder layout does not make those answers obvious, the SQL tree needs better documentation or better structure.
+| Schema | Role |
+|--------|------|
+| `meta` | Ingestion control plane — source systems, ingest runs, file registry, payload hashes, errors |
+| `ref` | Stable lookup tables and enumerations |
+| `raw_retrosheet` | Retrosheet event file records (info, start, play, sub, comment, data, adjustment) |
+| `raw_chadwick` | Chadwick structured extractions (`cwevent`, `cwgame`, `cwsub`) |
+| `raw_lahman` | Lahman historical tables (people, batting, pitching, fielding, teams) |
+| `raw_statcast` | Baseball Savant / Statcast pitch-level exports |
+| `raw_mlbapi` | MLB StatsAPI request/payload history and expanded endpoint tables |
+| `raw_fangraphs` | FanGraphs request and payload captures |
+| `raw_bref` | Baseball Reference captures |
+| `raw_espn` | ESPN captures |
+| `raw_odds` | Sportsbook and odds-source payloads |
+| `stg` | Cross-source identity and game conformance bridges |
+| `core` | Canonical baseball entities and gameplay facts |
+| `ml` | Model registry, feature store, training runs, backtests, predictions, simulations |
+| `ops` | Job scheduling, queuing, retries, dead letters, live polling, refresh logs |
+| `auth` | Users, workspaces, service accounts, API keys, entitlements |
+| `api` | API plans, request logs, idempotency, webhooks |
+| `mart` | Read-optimized serving views and materialized views |
+| `util` | Shared helper functions and triggers |
 
-## Relationship to `docs/`
+## Key function families (`080_functions/`)
 
-The SQL files are the implementation of the platform. The docs explain the reasoning behind them.
+| Family | Representative functions |
+|--------|--------------------------|
+| Timestamp triggers | `util.touch_updated_at()`, `util.core_touch_updated_at()` |
+| Hashing / deduplication | `util.sha256_text()`, `util.register_payload_hash()` |
+| Ingest lifecycle | `util.start_ingest_run()`, `util.finish_ingest_run()` |
+| Validation / normalization | `util.normalize_retrosheet_record_type()`, `util.normalize_team_code()` |
+| Key construction | `util.build_retrosheet_game_id()`, `util.build_pa_key()`, `util.build_pitch_key()` |
+| ML / live-ops helpers | `util.should_stop_live_polling()`, `util.safe_prediction_rank_score()` |
 
-That means `sql/` should be used together with `docs/`:
-- change SQL when implementation changes are needed,
-- change docs when the conceptual meaning changes,
-- keep the two aligned so the repository stays understandable.
+## Notes
 
-## Recommended next improvements
-
-The SQL directory will benefit from more explicit repo-specific support over time, including:
-- a documented batch/apply order,
-- naming conventions for new SQL files,
-- validation or smoke-test scripts,
-- migration discipline for future schema changes,
-- clearer separation of foundational versus derived objects.
+- `010_extensions/002_optional_extensions.sql` contains commented-out extensions. Uncomment only those available in your environment.
+- `090_constraints_indexes/` has no `001_` file — indexing for extensions and base schemas is handled implicitly.
+- `070_ml_ops/` covers both ML and ops tables **and** includes `auth` and `api` schema objects. Apply all files in that folder before moving to `080_functions/`.
+- For design rationale behind any schema, see the corresponding document in `docs/`.

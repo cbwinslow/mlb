@@ -1,59 +1,43 @@
-# Docs Directory Guide
+# Documentation Directory
 
-## Purpose
+This directory contains the written design and reference material for the MLB analytics platform. Each file has a specific, non-overlapping role. This README explains which document answers which kind of question.
 
-This directory contains the written design and reference material for the MLB analytics platform. Unlike the root `README.md`, which explains the repository overall, this file is specifically about how to read and maintain the documentation set inside `docs/`.
+## When to use this directory
 
-This README should help contributors understand which document answers which kind of question.
+Come here when the question is about **why** the platform is shaped the way it is — design intent, system boundaries, schema meaning, access control logic, ingestion behavior, modeling patterns, or operational philosophy.
 
-## What belongs in `docs/`
+For **how to apply the SQL**, see `sql/README.md` instead.
 
-The `docs/` folder is for explanatory material, design references, and subsystem guidance. It is the place for documents that explain why the platform is shaped the way it is.
+## Document index
 
-Typical documents here include:
-- `architecture.md`
-- `data-dictionary.md`
-- `security.md`
-- `ingestion.md`
-- `modeling.md`
-- `operations.md`
+| Document | Answers the question |
+|----------|---------------------|
+| `architecture.md` | How is the overall system structured? What are the layers, schemas, and data flow? |
+| `data-dictionary.md` | What schemas and table families exist? What kind of data lives where? |
+| `security.md` | How is access controlled? What is the workspace model, RLS strategy, and API identity design? |
+| `ingestion.md` | How does source data enter the platform? What are the source-specific ingestion patterns? |
+| `modeling.md` | How are prediction problems, feature sets, training runs, backtests, and simulations represented? |
+| `operations.md` | How are jobs scheduled, queued, retried, and recovered? How does live polling work? |
+| `project-summary.md` | What has been built so far? What is the recommended repository layout and extension roadmap? |
 
-Additional future files might include deployment, API, service-layout, testing, or migration guides.
+## Recommended reading order
 
-## How to read the docs set
+Read in this sequence to move from broad orientation to subsystem detail:
 
-The best reading order is usually:
-
-1. `architecture.md` to understand the system shape.
-2. `data-dictionary.md` to understand schemas and object families.
-3. `security.md` to understand access boundaries and ownership.
-4. `ingestion.md` to understand how source data enters the platform.
-5. `modeling.md` to understand ML, prediction, and simulation design.
-6. `operations.md` to understand queues, polling, retries, and recovery.
-
-That sequence moves from broad orientation to subsystem detail.
+1. `architecture.md` — overall system shape and layers
+2. `data-dictionary.md` — schema and table family reference
+3. `security.md` — access control and ownership model
+4. `ingestion.md` — source loading workflows
+5. `modeling.md` — ML, prediction, and simulation design
+6. `operations.md` — queues, polling, retries, and recovery
 
 ## What this folder is not for
 
-This folder is not the place for raw SQL implementation details or execution-order mechanics. Those belong in `sql/` and should be explained by the SQL-specific README there.
-
-The docs here should complement the SQL, not mirror every file line by line.
-
-## Documentation standards
-
-Each doc in this folder should have a narrow, specific role.
-
-- `architecture.md` should explain overall structure.
-- `data-dictionary.md` should explain schema and table-family meaning.
-- `security.md` should explain permissions, ownership, and isolation.
-- `ingestion.md` should explain source-loading workflows.
-- `modeling.md` should explain predictive and simulation objects.
-- `operations.md` should explain jobs, queues, retries, and operational recovery.
-
-If two files feel interchangeable, they should be revised until their jobs are clearly different.
+This folder is not for raw SQL implementation details or execution-order mechanics. Those belong in `sql/` and are covered by the SQL-specific README. The documents here should complement the SQL, not mirror every file line by line.
 
 ## Maintenance guidance
 
-When changing the SQL design, update the related docs if the design meaning changed. When adding a new doc, give it a clear scope and make sure it does not simply restate another file with different headings.
-
-The goal of this directory is clarity, not volume.
+- When changing the SQL design in a way that changes **meaning**, update the relevant doc.
+- When adding a new document, give it a narrow scope and verify it does not overlap with an existing file.
+- The data dictionary is intentionally incomplete at the column level and will be expanded after the SQL design stabilizes.
+- If two files feel interchangeable, revise them until their jobs are clearly different.
