@@ -1,28 +1,52 @@
 # Contributing to the MLB Analytics Platform
 
-This repository contains the PostgreSQL-first MLB analytics and prediction platform, plus a growing Python application layer (`baseball`) for ingestion workers, APIs, agents, and tools.[cite:2]
+This repository contains the PostgreSQL-first MLB analytics and prediction platform, plus a growing Python application layer (`baseball`) for ingestion workers, APIs, agents, and tools.
 
-The goal of this document is to make it easy to contribute in a consistent, safe way that respects the database-centric architecture already defined in `docs/` and `sql/`.[cite:2]
+The goal of this document is to make it easy to contribute in a consistent, safe way that respects the database-centric architecture already defined in `docs/` and `sql/`.
+
+## Development Setup
+
+```bash
+# Clone
+git clone https://github.com/cbwinslow/mlb.git
+cd mlb
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Install in editable mode with all deps
+pip install -e .
+
+# Copy env template
+cp .env.example .env
+# Edit .env with your local DATABASE_URL
+
+# Verify CLI works
+baseball --help
+baseball db-init
+```
 
 ## Repository layout (quick recap)
 
-See `docs/project-summary.md` and `docs/architecture.md` for the full picture.[cite:2]
+See `docs/project-summary.md` and `docs/architecture.md` for the full picture.
 
 At a high level:
 
-- `sql/` – all schemas, tables, functions, indexes, constraints (the source of truth for the database).[cite:2]
-- `docs/` – architecture, data-dictionary, security, ingestion, modeling, and operations design docs.[cite:2]
+- `sql/` – all schemas, tables, functions, indexes, constraints (the source of truth for the database).
+- `docs/` – architecture, data-dictionary, security, ingestion, modeling, and operations design docs.
 - `tests/sql/` – SQL smoke tests and validation queries.
 - `baseball/` – Python app layer (CLI, settings, and future workers/APIs).
-- `.github/` – CI workflows, issue templates, and GitHub configuration.[cite:9]
+- `.github/` – CI workflows, issue templates, and GitHub configuration.
 
 ## Branching and pull requests
 
-- Default branch: `main`.
-- Feature branches: use descriptive names, for example:
-  - `feature/python-app-layer`
-  - `feature/ingest-retrosheet-cli`
-  - `fix/sql-core-game-constraints`
+- Default branch: `main` — stable, always deployable.
+- Feature branches: use descriptive names following these conventions:
+  - `feature/<name>` — new features (e.g. `feature/python-app-layer`, `feature/ingest-retrosheet-cli`)
+  - `fix/<name>` — bug fixes (e.g. `fix/sql-core-game-constraints`)
+  - `docs/<name>` — documentation only
+  - `chore/<name>` — housekeeping (deps, CI, etc.)
 - Always open a pull request into `main`.
 - Keep PRs focused on a cohesive set of changes (schema change, CLI feature, CI improvement) rather than mixing many concerns.
 
@@ -30,15 +54,33 @@ At a high level:
 
 Before requesting review:
 
+- [ ] All AI review comments addressed before requesting human review
 - [ ] `sql/` changes compile and apply cleanly in order (010 → 090).
-- [ ] Any new SQL objects are reflected in the relevant doc (`architecture.md`, `data-dictionary.md`, or others).[cite:2]
+- [ ] Any new SQL objects are reflected in the relevant doc (`architecture.md`, `data-dictionary.md`, or others).
 - [ ] Python code passes `python -m compileall baseball` and basic linting if configured.
 - [ ] New CLI commands are documented in `docs/python-app-layer.md`.
+- [ ] Tests added/updated for new code.
+- [ ] `pyproject.toml` updated if new dependencies added.
+- [ ] `ROADMAP.md` updated if milestone items completed.
+- [ ] No hardcoded credentials or secrets.
+- [ ] Database URL is never printed unmasked.
 - [ ] CI passes for the branch.
+
+## Commit Message Format
+
+```
+type(scope): short description
+
+Longer explanation if needed.
+
+Fixes #issue-number
+```
+
+Types: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `ci`
 
 ## SQL changes
 
-The SQL design is intentionally layered and ordered; changing it requires care.[cite:2]
+The SQL design is intentionally layered and ordered; changing it requires care.
 
 - New tables or functions should be added to the appropriate folder under `sql/`:
   - Extensions → `sql/010_extensions/`
@@ -55,7 +97,7 @@ The SQL design is intentionally layered and ordered; changing it requires care.[
 
 ## Python application layer (`baseball`)
 
-The Python app layer is designed to sit on top of the existing schemas, not replace them.[cite:2]
+The Python app layer is designed to sit on top of the existing schemas, not replace them.
 
 - Package name and CLI: `baseball`.
 - Python version: `>=3.12`.
@@ -88,7 +130,7 @@ Initial commands:
 - `baseball db-init` – **currently a dry-run stub** that prints the planned environment, `DATABASE_URL`, and `sql/` root. It will be extended to actually apply the numbered SQL folders in order.
 - `baseball db-smoke` – **currently a dry-run stub** that prints the environment, `DATABASE_URL`, and `tests/sql` root. It will be extended to execute SQL smoke tests.
 
-Future commands will cover ingestion workers, ML runs, and job inspection based on the `meta`, `ml`, and `ops` schemas.[cite:2]
+Future commands will cover ingestion workers, ML runs, and job inspection based on the `meta`, `ml`, and `ops` schemas.
 
 ## Testing
 
@@ -103,18 +145,24 @@ Future commands will cover ingestion workers, ML runs, and job inspection based 
 - Prefer `pytest`, but keep dependencies minimal.
 - Aim for tests that exercise both CLI wiring and DB interactions using a disposable database.
 
+```bash
+pytest tests/
+```
+
 ## Code style and tooling
 
-- Python: follow PEP 8 where reasonable; use type hints.
+- Python: `ruff` for linting, `black` for formatting; follow PEP 8 where reasonable; use type hints.
+- SQL: lowercase keywords, snake_case identifiers.
 - Prefer async functions for DB interactions.
+- All settings via `baseball.settings.AppSettings` — never `os.environ` directly.
 - Avoid putting business logic in ad-hoc scripts; prefer modules under `baseball/` and unit tests.
 
 ## Security and safety
 
-The platform is designed with workspaces, row-level security, and API identities in mind.[cite:2]
+The platform is designed with workspaces, row-level security, and API identities in mind.
 
 - Avoid granting broad `SUPERUSER`-like privileges to application roles.
-- Prefer the existing `auth`, `api`, and `ops` patterns for new operational flows.[cite:2]
+- Prefer the existing `auth`, `api`, and `ops` patterns for new operational flows.
 - When designing agent-facing tools, ensure they operate through constrained verbs (e.g. enqueue job, read predictions) rather than arbitrary SQL.
 
-If you’re unsure how to model a change, start a discussion issue before opening a PR.
+If you're unsure how to model a change, start a discussion issue before opening a PR.

@@ -1,0 +1,75 @@
+language: en
+tone_instructions: |
+  Be direct and technical. Skip compliments. Flag real problems only.
+  This is a PostgreSQL analytics platform for MLB data - be aware of the
+  raw -> staging -> canonical -> mart data layer architecture.
+
+reviews:
+  enabled: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - develop
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  path_instructions:
+    - path: "**/*.py"
+      instructions: |
+        Flag bare except clauses, mutable default arguments, hardcoded
+        credentials, DATABASE_URC logging, missing workspace_id on inserts,
+        ingestion mixing source acquisition with canonical transform, import *,
+        and functions over 80 lines.
+    - path: "**/*.sql"
+      instructions: |
+        Flag missing NOT NULL on required columns, raw schema objects exposed
+        to app users, missing indexes on FK columns, workspace_id omitted from
+        tenant-scoped WHERE clauses, TRUNCATE without transaction wrapper.
+    - path: ".github/workflows/**"
+      instructions: |
+        Flag steps echoing secrets, hardcoded tokens, missing permissions
+        blocks, and actions not pinned to a version tag.
+    - path: "**/*.md"
+      instructions: Flag broken markdown links and references to nonexistent paths.
+
+  tools:
+    ruff:
+      enabled: true
+    pylint:
+      enabled: true
+    sqlfluff:
+      enabled: true
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    semgrep:
+      enabled: true
+    yamlint:
+      enabled: true
+
+  finishing_touches:
+    docstrings:
+      enabled: true
+
+custom_checks:
+  - name: no-hardcoded-secrets
+    description: Block merge if hardcoded secrets detected
+    level: error
+  - name: no-database-url-in-logs
+    description: Warn if DATABASE_URL is passed to logger or print
+    level: warning
+
+integrations:
+  linear:
+    enabled: true

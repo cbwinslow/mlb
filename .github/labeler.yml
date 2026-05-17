@@ -1,0 +1,32 @@
+sql:
+  - changed-files:
+      - any-glob-to-any-file: 'sql/**'
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: 'docs/**'
+      - any-glob-to-any-file: '*.md'
+
+python:
+  - changed-files:
+      - any-glob-to-any-file: 'baseball/**'
+      - any-glob-to-any-file: 'pyproject.toml'
+
+security:
+  - changed-files:
+      - any-glob-to-any-file: 'docs/security.md'
+      - any-glob-to-any-file: 'SECURITY.md'
+      - any-glob-to-any-file: '.env.example'
+      - any-glob-to-any-file: '.github/workflows/**'
+
+ingestion:
+  - changed-files:
+      - any-glob-to-any-file: 'docs/ingestion.md'
+      - any-glob-to-any-file: 'docs/DATA_INGESTION.md'
+      - any-glob-to-any-file: 'sql/030meta/**'
+      - any-glob-to-any-file: 'sql/040raw/**'
+      - any-glob-to-any-file: 'sql/050staging/**'
+
+github:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**'

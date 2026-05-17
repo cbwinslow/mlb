@@ -1,0 +1,29 @@
+[config]
+model = "claude-3-7-sonnet"
+fallback_models = ["gpt-4.1", "gemini-2.5-pro"]
+verbosity_level = 1
+
+[pr_reviewer]
+enabled = true
+require_focused_review = true
+require_score_review = false
+require_tests_review = true
+require_estimate_effort_to_review = true
+extra_instructions = "Focus ONLY on: bugs, security issues (hardcoded secrets, DATABASE_URL exposure), missing workspace_id on multi-tenant writes, bare except clauses, ingestion pipeline layer violations, data integrity issues. Skip formatting and style - ruff handles those."
+
+[rr_description]
+enabled = true
+publish_labels = true
+generate_ai_title = true
+extra_instructions = "This is the mlb PostgreSQL analytics platform. Mention which data layer is affected (raw/staging/canonical/mart/MCP agent) and whether this is a schema, ingestion, or query change."
+
+[pr_code_suggestions]
+enabled = true
+commitable_code_suggestions = true
+max_code_suggestions = 8
+byte_instructions = "Prioritize: security fixes, correctness fixes, workspace_id gaps. Skip cosmetic suggestions."
+
+[github_action_config]
+auto_review = true
+auto_describe = true
+auto_improve = true
