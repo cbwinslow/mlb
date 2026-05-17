@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Project roadmap
+    url: https://github.com/cbwinslow/mlb/blob/main/ROADMAP.md
+    about: Review roadmap and milestone context before opening a feature request.
