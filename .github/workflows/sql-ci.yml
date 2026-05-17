@@ -1,0 +1,56 @@
+name: SQL CI
+
+on:
+  push:
+    paths:
+      - 'sql/**'
+      - 'docs/**'
+      - '.github/workflows/sql-ci.yml'
+  pull_request:
+    paths:
+      - 'sql/**'
+      - 'docs/**'
+      - '.github/workflows/sql-ci.yml'
+
+jobs:
+  postgres-bootstrap:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Bootstrap database
+        run: |
+          chmod +x scripts/bootstrap_db.sh
+          RECREATE_DB=1 scripts/bootstrap_db.sh mlb_ci
+
+      - name: Run SQL smoke tests
+        run: |
+          psql -v ON_ERROR_STOP=1 -d mlb_ci -f tests/sql/bootstrap/001_smoke.sql
+          psql -v ON_ERROR_STOP=1 -d mlb_ci -f tests/sql/constraints/001_meta_checks.sql
