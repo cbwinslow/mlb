@@ -36,6 +36,7 @@ asyncpg = ">=0.29"
 typer = { version = ">=0.12", extras = ["all"] }
 pydantic = ">=2.8"
 pydantic-settings = ">=2.4"
+pydantic-settings = ">=2.4"
 python-dotenv = ">=1.0"
 rich = ">=13.7"
 
