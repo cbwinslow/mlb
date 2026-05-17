@@ -1,0 +1,10 @@
+[pr_reviewer]
+require_score_review=false
+require_tests_review=false
+require_estimate_effort_to_review=true
+extra_instructions="""\
+- Focus on bugs, security, and logic errors over style nitpicks.
+- Ensure no plain-text secrets or API keys are committed.
+- Validate that ingestion scripts separate raw landing from canonical storage.
+- Check that Database URLs are never printed to the logs.
+"""
