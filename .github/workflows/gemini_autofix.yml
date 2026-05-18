@@ -18,11 +18,11 @@ jobs:
        contains(github.event.issue.labels.*.name, 'auto-review')) &&
       github.event.issue.user.type != 'Bot'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch_depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
