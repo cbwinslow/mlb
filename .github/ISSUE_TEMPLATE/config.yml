@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Architecture / design discussion
+    url: https://github.com/cbwinslow/mlb/discussions
+    about: Use GitHub Discussions for high-level design questions about schemas, architecture, or operations.
+  - name: Project roadmap
+    url: https://github.com/cbwinslow/mlb/blob/main/ROADMAP.md
+    about: Review roadmap and milestone context before opening a feature request.

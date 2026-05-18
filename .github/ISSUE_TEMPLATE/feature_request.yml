@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a new capability for the MLB analytics platform
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Target area
+      options:
+        - foundation-scaffolding
+        - database-schema
+        - data-ingestion
+        - mcp-server
+        - web-app
+        - docs
+        - automation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Expected impact

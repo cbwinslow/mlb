@@ -1,0 +1,46 @@
+name: Data source / ingestion task
+
+description: Add or improve ingestion for a baseball or odds data source
+
+labels:
+  - area:ingestion
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for tasks related to Retrosheet, Chadwick, Lahman, Statcast, MLB StatsAPI, FanGraphs, Baseball Reference, ESPN, or odds providers.[cite:2]
+
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Which data source does this cover?
+      placeholder: e.g. Retrosheet, Statcast, MLB StatsAPI, FanGraphs, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What new ingestion capability or improvement is needed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: schema
+    attributes:
+      label: Schema impact
+      description: Which schemas/tables are involved (meta, raw_*, stg, core, ml, ops)?[cite:2]
+
+  - type: textarea
+    id: operations
+    attributes:
+      label: Operational considerations
+      description: Scheduling, retries, backfills, or live polling behavior.[cite:2]
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context

@@ -1,0 +1,31 @@
+codeAssist:
+  model: gemini-2.5-pro
+
+  context:
+    files:
+      - "**/*.py"
+      - "**/*.sql"
+      - "**/*.yaml"
+      - "**/*.yml"
+      - "**/*.toml"
+      - "**/*.md"
+    exclude:
+      - "**/__pycache__/**"
+      - "**/.git/**"
+      - "**/node_modules/**"
+      - "**/*.pyc"
+      - ".venv/**"
+
+  projectContext: |
+    cbwinslow/mlb - PostgreSQL analytics platform for MLB baseball data.
+    Architecture: raw -> staging -> canonical -> mart schemas + MCP agent layer.
+    Stack: Python 3.12, PostgreSQL 16, psycopg3, SQLAlchemy 2.x, ruff, pytest.
+    Rules: no hardcoded secrets, never log DATABASE_URL, always include
+    workspace_id on multi-tenant inserts, never bare except, raw schema
+    is append-only.
+
+  review:
+    enabled: true
+    onPullRequest: true
+    checkSecrets: true
+    checkPerformance: true

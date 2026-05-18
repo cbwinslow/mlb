@@ -1,0 +1,71 @@
+{
+  "projectName": "mlb",
+  "description": "PostgreSQL analytics platform for MLB baseball data",
+  "provider": {
+    "name": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnvVar": "OPENROUTER_API_KEY",
+    "defaultModel": "nvidia/nemotron-3-super-120b-a12b:free",
+    "fallbackModels": [
+      "poolside/laguna-m.1:free",
+      "openai/gpt-oss-120b:free",
+      "minimax/minimax-m2.5:free",
+      "deepseek/deepseek-v4-flash:free",
+      "google/gemma-4-31b:free",
+      "openrouter/free"
+    ]
+  },
+  "modes": {
+    "architect": {
+      "description": "Plan schema changes, new data layers, ingestion pipelines",
+      "systemPrompt": "You are the architect for the mlb PostgreSQL analytics platform. Data layers: raw -> staging -> canonical -> mart. Never violate append-only raw schema or skip workspace_id on multi-tenant tables."
+    },
+    "code": {
+      "description": "Write and refactor Python, SQL, workflow code",
+      "systemPrompt": "Write production Python 3.12 and PostgreSQL 16 code for the mlb platform. Rules: psycopg3 for new DB code, parameterized queries, specific exception handling, workspace_id on multi-tenant inserts, no hardcoded secrets."
+    },
+    "debug": {
+      "description": "Diagnose CI failures, test errors, SQL errors",
+      "systemPrompt": "Debug mode for the mlb platform. Trace errors through raw->staging->canonical->mart pipeline. Check workspace_id gaps, missing indexes, bare except eating errors silently."
+    },
+    "review": {
+      "description": "Review code and flag issues",
+      "systemPrompt": "Review code for the mlb platform. Hard rules: no bare except, no hardcoded secrets, no DATABASE_URL in logs, workspace_id on multi-tenant inserts, raw schema is append-only."
+    },
+    "triage": {
+      "description": "Triage and categorize GitHub issues",
+      "systemPrompt": "Triage issues for the mlb platform. Categories: schema-change, ingestion-bug, query-bug, security, ci-fix, docs, feature. Severity: critical/high/medium/low."
+    }
+  },
+  "rules": [
+    "Never hardcode secrets, API keys, or DATABASE_URL with credentials",
+    "Never log or print DATABASE_URL",
+    "All multi-tenant INSERT statements must include workspace_id",
+    "Ingestion must not mix source acquisition with canonical transformation",
+    "Always catch specific exceptions - never bare except:",
+    "Raw schema is append-only - never UPDATE or DELETE from raw.*",
+    "Prefer psycopg3 for new database code",
+    "All new public functions must have docstrings",
+    "All SQL must use parameterized queries"
+  ],
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": { "DATABASE_URL": "${DATABASE_URL}" }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+    }
+  },
+  "contextFiles": [
+    "README.md", "pyproject.toml", "AGENTS.md", "docs/*.md",
+    "baseball/**/*.py", "sql/**/*.sql", ".github/workflows/*.yml"
+  ]
+}
