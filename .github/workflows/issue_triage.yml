@@ -1,0 +1,95 @@
+name: Issue Triage via OpenRouter
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  triage:
+    name: Auto-triage new issues
+    runs-on: [self-hosted, linux, homelab]
+    if: github.repository_owner == 'cbwinslow'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Triage issue
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 /tmp/triage.py
+
+      - name: Write triage script
+        run: |
+          cat > /tmp/triage.py << 'PYEOF'
+import os, json, sys
+try:
+    import requests
+except ImportError:
+    os.system('pip3 install requests -q')
+    import requests
+
+key = os.environ.get('OPENROUTER_API_KEY', '')
+if not key:
+    print('No key - skipping'); sys.exit(0)
+
+title = os.environ.get('ISSUE_TITLE', '')
+body = os.environ.get('ISSUE_BODY', '')[:2000]
+prompt = (
+    'Triage this GitHub issue for the mlb PostgreSQL analytics platform.\n\n'
+    'Title: ' + title + '\nBody: ' + body + '\n\n'
+    'Respond with JSON only:\n'
+    '{"label":"schema-change|ingestion-bug|query-bug|security|ci-fix|docs|feature","severity":"critical|high|medium|low","layer":"raw|staging|canonical|mart|ml|ops|auth|meta|unknown","summary":"one sentence","suggested_fix":"brief approach"}'
+)
+models = ['nvidia/nemotron-3-super-120b-a12b:free', 'deepseek/deepseek-v4-flash:free', 'openrouter/free']
+result = None
+for m in models:
+    try:
+        r = requests.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
+                     'HTTP-Referer': 'https://github.com/cbwinslow/mlb'},
+            json={'model': m, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 400},
+            timeout=60)
+        d = r.json()
+        if 'choices' in d and d['choices']:
+            result = d['choices'][0]['message']['content'].strip()
+            break
+    except Exception as e:
+        print('Failed ' + m + ': ' + str(e))
+if not result:
+    print('All models failed'); sys.exit(0)
+try:
+    data = json.loads(result)
+    comment = (
+        '## Auto-Triage\n\n'
+        '| Field | Value |\n|---|---|\n'
+        '| **Label** | `' + data.get('label','?') + '` |\n'
+        '| **Severity** | `' + data.get('severity','?') + '` |\n'
+        '| **Layer** | `' + data.get('layer','?') + '` |\n'
+        '| **Summary** | ' + data.get('summary','') + ' |\n'
+        '| **Suggested Fix** | ' + data.get('suggested_fix','') + ' |\n\n'
+        '_Add label `ai-fix` to trigger Gemini auto-fix._'
+    )
+    open('/tmp/triage_comment.md','w').write(comment)
+    open('/tmp/triage_label.txt','w').write(data.get('label',''))
+except Exception as e:
+    print('Parse error: ' + str(e))
+PYEOF
+          python3 /tmp/triage.py
+
+      - name: Post comment and label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -s /tmp/triage_comment.md ] && \
+            gh issue comment ${{ github.event.issue.number }} --body-file /tmp/triage_comment.md
+          [ -s /tmp/triage_label.txt ] && \
+            gh issue edit ${{ github.event.issue.number }} \
+              --add-label "$(cat /tmp/triage_label.txt)" 2>/dev/null || true
