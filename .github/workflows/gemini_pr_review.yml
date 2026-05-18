@@ -11,29 +11,32 @@ permissions:
 jobs:
   gemini-review:
     name: Gemini CLI code review
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, homelab]
+    if: github.repository_owner == 'cbwinslow'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
-          fetch_depth: 0
+          fetch-depth: 0
 
-      - name: Install Gemini CLI
-        run: npm install -g @google/gemini-cli
+      - name: Ensure Node + Gemini CLI
+        run: |
+          which node || sudo apt-get install -y nodejs npm
+          gemini --version 2>/dev/null || sudo npm install -g @google/gemini-cli
 
       - name: Get PR diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr diff ${{ github.event.pull_request.number }} \\\
-            --repo ${{ github.repository }} > /tmp/pr_diff.txt 2>/dev/null || \\\
-              git diff origin/main...HEAD > /tmp/pr_diff.txt
+          gh pr diff ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} > /tmp/pr_diff.txt 2>/dev/null || \
+            git diff origin/main...HEAD > /tmp/pr_diff.txt
 
       - name: Run Gemini review
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           DIFF=$(head -c 12000 /tmp/pr_diff.txt)
-          gemini -p "Review this PR for the mlb PostgreSQL analytics platform. Use Gemini 2.5 Pro or the most capable model available. Flag: hardcoded secrets, raw DATABASE_URL in logs, missing workspace_id, bare except clauses, ingestion mixing source acquisition with canonical transform. Skip ruff-handled formatting. Be concise. Output markdown. DIFF: ${DIFF}" \\\
+          gemini -p "Review this PR for the mlb PostgreSQL analytics platform. Flag: hardcoded secrets, raw DATABASE_URL in logs, missing workspace_id, bare except clauses, ingestion mixing source acquisition with canonical transform. Skip ruff-handled formatting. Be concise. Output markdown. DIFF: ${DIFF}" \
             2>&1 | tee /tmp/gemini_review.md
 
       - name: Post comment
@@ -43,7 +46,7 @@ jobs:
           if [ -s /tmp/gemini_review.md ]; then
             printf '## Gemini Code Review\n\n' > /tmp/final.md
             cat /tmp/gemini_review.md >> /tmp/final.md
-            gh pr comment ${{ github.event.pull_request.number }} \\\
-              --repo ${{ github.repository }} \\\
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --repo ${{ github.repository }} \
               --body-file /tmp/final.md
           fi
