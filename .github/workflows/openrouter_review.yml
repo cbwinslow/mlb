@@ -11,92 +11,91 @@ permissions:
 jobs:
   openrouter-review:
     name: AI PR review via OpenRouter free tier
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, homelab]
+    if: github.repository_owner == 'cbwinslow'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
-          fetch_depth: 0
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install requests
-        run: pip install requests
+          fetch-depth: 0
 
       - name: Get PR diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr diff ${{ github.event.pull_request.number }} \\\
-            --repo ${{ github.repository }} > /tmp/pr_diff.txt 2>/dev/null || \\\
-              git diff origin/main...HEAD > /tmp/pr_diff.txt
+          gh pr diff ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} > /tmp/pr_diff.txt 2>/dev/null || \
+            git diff origin/main...HEAD > /tmp/pr_diff.txt
 
       - name: Review via OpenRouter
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           python3 - << 'EOF'
-          import os, requests, sys
-          key = os.environ.get('OPENROUTER_API_KEY', '')
-          if not key:
-              print('OPENROUTER_API_KEY not set - skipping'); sys.exit(0)
-          diff = open('/tmp/pr_diff.txt').read()[:14000]
-          prompt = (
-              'Expert code review for the mlb PostgreSQL analytics platform.\n\n'
-              'CRITICAL - flag these:\n'
-              '- Hardcoded secrets / API keys / DATABASE_URL with credentials\n'
-              '- Python logging raw DATABASE_URL\n'
-              '- Missing workspace_id on multi-tenant table inserts\n'
-              '- Bare except clauses (must catch specific exceptions)\n'
-              '- Ingestion mixing source acquisition with canonical transform\n'
-              '- GitHub Actions steps echoing secrets\n\n'
-              'SECONDARY:\n'
-              '- Mutable default arguments\n'
-              '- Missing NOT NULL on required SQL columns\n\n'
-              'Skip ruff-handled formatting. Be concise. Output markdown.\n\nDIFF:\n' + diff
-          )
-          models = [
-              'openrouter/owl-alpha:free',
-              'nividia/nemotron-3-super-120b-a12b:free',
-              'poolside/laguna-m.1:free',
-              'openai/gpt-oss-120b:free',
-              'minimax/minimax-m2.5:free',
-              'deepseek/deepseek-v4-flash:free',
-              'google/gemma-4-31b:free',
-              'openrouter/free',
-          ]
-          review, used = None, None
-          for m in models:
-              try:
-                  r = requests.post(
-                      'https://openrouter.ai/api/v1/chat/completions',
-                      headers={'Authorization': 'Bearer ' + key,
-                               'Content-Type': 'application/json',
-                              'HTTP-Referer': 'https://github.com/cbwinslow/mlb',
-                               'X-Title': 'mlb-pr-review')},
-                      json={'model': m, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 2000},
-                      timeout=90)
-                  d = r.json()
-                  if 'choices' in d and d['choices']:
-                      review = d['choices'][0]['message']['content']
-                      used = m; break
-                  print('No choices from ' + m)
-              except Exception as e:
-                  print('Failed ' + m + ': ' + str(e))
-          if not review:
-              print('All models failed - skipping'); sys.exit(0)
-          result = '## OpenRouter AI Review\n\n_Model: `' + used + '`_\n\n' + review
-          open('/tmp/review_output.md', 'w').write(result)
-          print('Done: ' + used + ' (' + str(len(review)) + ' chars)')
-          EOF
+import os, json, sys
+try:
+    import requests
+except ImportError:
+    os.system('pip3 install requests -q')
+    import requests
+key = os.environ.get('OPENROUTER_API_KEY', '')
+if not key:
+    print('OPENROUTER_API_KEY not set - skipping'); sys.exit(0)
+diff = open('/tmp/pr_diff.txt').read()[:14000]
+prompt = (
+    'Expert code review for the mlb PostgreSQL analytics platform.\n\n'
+    'CRITICAL - flag these:\n'
+    '- Hardcoded secrets / API keys / DATABASE_URL with credentials\n'
+    '- Python logging raw DATABASE_URL\n'
+    '- Missing workspace_id on multi-tenant table inserts\n'
+    '- Bare except clauses\n'
+    '- Ingestion mixing source acquisition with canonical transform\n'
+    '- GitHub Actions steps echoing secrets\n\n'
+    'SECONDARY:\n'
+    '- Mutable default arguments\n'
+    '- Missing NOT NULL on required SQL columns\n\n'
+    'Skip ruff-handled formatting. Be concise. Output markdown.\n\nDIFF:\n' + diff
+)
+models = [
+    'openrouter/owl-alpha:free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+    'poolside/laguna-m.1:free',
+    'openai/gpt-oss-120b:free',
+    'minimax/minimax-m2.5:free',
+    'deepseek/deepseek-v4-flash:free',
+    'google/gemma-4-31b:free',
+    'openrouter/free',
+]
+review, used = None, None
+for m in models:
+    try:
+        r = requests.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            headers={'Authorization': 'Bearer ' + key,
+                     'Content-Type': 'application/json',
+                     'HTTP-Referer': 'https://github.com/cbwinslow/mlb',
+                     'X-Title': 'mlb-pr-review'},
+            json={'model': m, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 2000},
+            timeout=90)
+        d = r.json()
+        if 'choices' in d and d['choices']:
+            review = d['choices'][0]['message']['content']
+            used = m; break
+        print('No choices from ' + m)
+    except Exception as e:
+        print('Failed ' + m + ': ' + str(e))
+if not review:
+    print('All models failed - skipping'); sys.exit(0)
+result = '## OpenRouter AI Review\n\n_Model: `' + used + '`_\n\n' + review
+open('/tmp/review_output.md', 'w').write(result)
+print('Done: ' + used + ' (' + str(len(review)) + ' chars)')
+EOF
 
       - name: Post comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -s /tmp/review_output.md ]; then
-            gh pr comment ${{ github.event.pull_request.number }} \\\
-              --repo ${{ github.repository }} \\\
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --repo ${{ github.repository }} \
               --body-file /tmp/review_output.md
           fi
