@@ -1,74 +1,91 @@
-language: en
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
 tone_instructions: |
-  Be direct and technical. Skip compliments. Flag real problems only.
-  This is a PostgreSQL analytics platform for MLB data - be aware of the
-  raw -> staging -> canonical -> mart data layer architecture.
+  Be direct and technical. No compliments. Flag real problems only.
+  PostgreSQL analytics platform for MLB data.
+  Architecture: raw -> staging -> canonical -> mart + MCP agent layer.
+  Stack: Python 3.12, PostgreSQL 16, psycopg3, SQLAlchemy 2.x, ruff, pytest.
 
 reviews:
-  enabled: true
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
   auto_review:
     enabled: true
     drafts: false
-    base_branches:
-      - main
-      - develop
-  request_changes_workflow: true
-  high_level_summary: true
-  high_level_summary_placeholder: "@coderabbitai summary"
-  poem: false
-  review_status: true
-  collapse_walkthrough: false
+    base_branches: [main, develop]
 
   path_instructions:
     - path: "**/*.py"
       instructions: |
-        Flag bare except clauses, mutable default arguments, hardcoded
-        credentials, DATABASE_URC logging, missing workspace_id on inserts,
-        ingestion mixing source acquisition with canonical transform, import *,
-        and functions over 80 lines.
+        Hard rules - flag all:
+        1. Bare except clauses
+        2. Mutable default arguments
+        3. Hardcoded credentials or DATABASE_URL with password
+        4. Logging/printing DATABASE_URL directly
+        5. Missing workspace_id on multi-tenant INSERTs
+        6. Ingestion mixing source acquisition with canonical transform
+        7. import * anywhere
+        8. Functions over 80 lines without docstrings
+        9. Raw SQL string formatting (use parameterized queries only)
+
     - path: "**/*.sql"
       instructions: |
-        Flag missing NOT NULL on required columns, raw schema objects exposed
-        to app users, missing indexes on FK columns, workspace_id omitted from
-        tenant-scoped WHERE clauses, TRUNCATE without transaction wrapper.
+        Hard rules - flag all:
+        1. Missing NOT NULL on required columns
+        2. workspace_id omitted from tenant-scoped WHERE clauses
+        3. TRUNCATE without transaction wrapper
+        4. UPDATE or DELETE on raw.* schemas (append-only)
+        5. Missing indexes on foreign key columns
+        6. Missing ON DELETE/ON UPDATE on foreign keys
+
     - path: ".github/workflows/**"
       instructions: |
-        Flag steps echoing secrets, hardcoded tokens, missing permissions
-        blocks, and actions not pinned to a version tag.
-    - path: "**/*.md"
-      instructions: Flag broken markdown links and references to nonexistent paths.
+        Flag: steps echoing secrets, missing permissions blocks,
+        self-hosted jobs missing owner guard (github.repository_owner == 'cbwinslow'),
+        actions not pinned to version tags.
+
+    - path: "sql/040raw/**"
+      instructions: Raw schema is append-only. Flag any UPDATE, DELETE, or TRUNCATE.
+
+    - path: "sql/060core/**"
+      instructions: Flag missing source lineage tables. workspace_id required on all workspace-scoped tables.
+
+    - path: "sql/070mlops/**"
+      instructions: Flag missing point-in-time correctness on feature snapshots. predictionrun must reference modeldefinition.
 
   tools:
-    ruff:
-      enabled: true
-    pylint:
-      enabled: true
-    sqlfluff:
-      enabled: true
-    shellcheck:
-      enabled: true
-    actionlint:
-      enabled: true
-    gitleaks:
-      enabled: true
-    trufflehog:
-      enabled: true
-    semgrep:
-      enabled: true
-    yamlint:
-      enabled: true
+    ruff: {enabled: true}
+    pylint: {enabled: true}
+    sqlfluff: {enabled: true}
+    shellcheck: {enabled: true}
+    actionlint: {enabled: true}
+    gitleaks: {enabled: true}
+    trufflehog: {enabled: true}
+    semgrep: {enabled: true}
+    yamllint: {enabled: true}
 
   finishing_touches:
-    docstrings:
-      enabled: true
+    docstrings: {enabled: true}
 
 custom_checks:
   - name: no-hardcoded-secrets
     description: Block merge if hardcoded secrets detected
     level: error
   - name: no-database-url-in-logs
-    description: Warn if DATABASE_URL is passed to logger or print
+    description: Warn if DATABASE_URL passed to logger or print
     level: warning
+  - name: workspace-id-on-inserts
+    description: Warn if multi-tenant INSERT missing workspace_id
+    level: warning
+  - name: raw-schema-append-only
+    description: Error if UPDATE/DELETE on raw.* schema tables
+    level: error
+
+chat:
+  auto_reply: true
 
 integrations:
   linear:
