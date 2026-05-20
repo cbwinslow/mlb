@@ -257,6 +257,45 @@ This section records significant design decisions and their rationale. New decis
 
 ---
 
+### DEC-007 — FanGraphs and BRef Raw Tables: Fully Typed (2026-05-19)
+**Decision:** `raw_fangraphs` and `raw_bref` will have fully typed stat tables with one column per stat field. The current JSONB payload-only approach in `006_raw_web_sources.sql` is a temporary scaffold and must be replaced.
+**Rationale:** JSONB blobs cannot be joined or aggregated without runtime JSON extraction (`->>`), which is slow, unindexable without GIN, and opaque to query planners. Fully typed tables allow standard SQL aggregation, FK relationships, and column-level statistics used by the query planner. The owner confirmed: typed tables are the target, even if more work.
+**Strategy:** Ingest to JSONB payload tables first if needed for a quick initial load, then run a one-time migration to populate the typed tables. Once typed tables are populated, the payload blobs become optional audit artifacts.
+**Access method:** pybaseball `batting_stats()`, `pitching_stats()`, `fielding_stats()`, `team_batting()`, `team_pitching()`, and Statcast leaderboard functions for FanGraphs; direct HTML scrape or pybaseball for BRef.
+
+---
+
+### DEC-008 — raw_retrosheet and raw_chadwick: Keep Separate (2026-05-19)
+**Decision:** `raw_retrosheet` and `raw_chadwick` remain separate schemas.
+**Rationale:** After reviewing both files, the schemas are fundamentally different tools producing different output shapes:
+- `raw_retrosheet` stores the **raw event file records** exactly as they appear in Retrosheet `.EVA`/`.EVN` files: line-by-line records (`record_type` IN `id/version/info/start/sub/play/com/data/badj/...`), with `raw_line TEXT` and `raw_fields TEXT[]` preserving the source exactly. It is a faithful byte-level transcript of the source files.
+- `raw_chadwick` stores the **parsed and computed output** of the Chadwick Bureau CLI tools (`cwevent`, `cwgame`, `cwsub`): 96 typed, named columns per play event, with fielder IDs, base destinations, assist/error credits, linescore accumulators, and PA state. This is a derived, structured interpretation of the same source.
+They are related (cwevent_file FK references raw_retrosheet.event_file) but serve different purposes: retrosheet = raw file archive, chadwick = parsed play-by-play. Merging them would lose this distinction and make it impossible to diagnose parsing differences or re-parse from raw.
+
+---
+
+### DEC-009 — Alembic Strategy: Manual DDL + Alembic for Version Tracking Only (2026-05-19)
+**Decision:** DDL is managed manually in `sql/` files as the authoritative source of truth. Alembic is used exclusively for version tracking and migration execution ordering — not for auto-generation from SQLAlchemy models.
+**Rationale:** This is the industry-standard approach for data warehouses and analytics platforms where DDL complexity (partitioning, custom types, GIN indexes, materialized views, triggers, RLS) far exceeds what Alembic auto-generate can handle correctly. Auto-generated migrations from ORM models routinely produce incorrect DDL for PostgreSQL-specific features. The pattern used by projects like dbt, Apache Airflow, and Metabase is: write DDL by hand, use the migration tool only to track what has been applied and in what order. Alembic's `op.execute()` can run raw SQL from the `sql/` files directly.
+**Workflow:** Each new `sql/` file gets a corresponding Alembic version file that calls `op.execute(open('sql/path/to/file.sql').read())`. The Alembic history provides the audit trail; the `sql/` files provide the readable, reviewable DDL.
+
+---
+
+### DEC-010 — MLB Stats API: JSONB Staging Then Typed Tables (2026-05-19)
+**Decision:** MLB Stats API responses are first ingested as JSONB blobs into endpoint-specific raw tables (one table per major endpoint family, e.g. `raw_mlbapi.schedule`, `raw_mlbapi.boxscore`, `raw_mlbapi.player`). A subsequent staging step extracts typed columns into normalized tables.
+**Rationale:** The MLB Stats API has 100+ endpoints with deeply nested JSON and fields that change between API versions. Ingesting the full response payload first provides a complete audit record and allows re-extraction without re-calling the API. The two-step approach (raw JSONB → staged typed) is the correct operational pattern: fast, reliable ingest that never loses data, with typed extraction decoupled from the HTTP call. This mirrors how production data pipelines at MLB.com, Fangraphs, and similar organizations handle the Stats API internally.
+**Grain:** One row per API response object (one row per game for `/schedule`, one row per batter appearance for `/boxscore` batting lines, etc.). Endpoint families group related endpoints into one table rather than one table per endpoint.
+
+---
+
+### DEC-011 — ML Ops Export: PostgreSQL Materialized Views Primary; Parquet/S3 as Optional Export (2026-05-19)
+**Decision:** PostgreSQL materialized views are the primary ML feature serving layer. A Parquet/S3 export capability will be added as an optional export path, not a replacement.
+**Rationale:** Materialized views in PostgreSQL provide immediate queryability, are refreshable on demand (`REFRESH MATERIALIZED VIEW CONCURRENTLY`), support `CONCURRENTLY` so reads are never blocked during refresh, and integrate directly with the existing SQLAlchemy/FastAPI/MCP stack without any additional infrastructure. They are the correct primary choice.
+Parquet/S3 export is valuable for: (a) training large ML models in Python (pandas/sklearn/PyTorch) where reading from Postgres over many epochs is slow, (b) sharing feature datasets with R users (R natively reads Parquet via `arrow` package), (c) reproducibility — a frozen Parquet snapshot of training data cannot be accidentally changed by a `REFRESH`. A future `baseball export-features --format parquet --dest s3://...` CLI command will cover this use case. R users specifically benefit from Parquet because `arrow::read_parquet()` is dramatically faster than `RPostgres` for large feature tables.
+**Implementation order:** Materialized views first (in `070_ml_ops`). Parquet export CLI added in Milestone 3 ingestion work.
+
+---
+
 ## 7. What Future Agents Should NOT Do
 
 This section exists because well-intentioned agents have made these mistakes before.
@@ -271,17 +310,19 @@ This section exists because well-intentioned agents have made these mistakes bef
 - ❌ **Do not create an `updated_at` column without attaching the `stg.set_updated_at()` trigger** (or an equivalent) to it.
 - ❌ **Do not add an index without a documented access pattern.** Indexes are not free — they slow writes and consume disk space.
 - ❌ **Do not commit without posting a timestamped update to Issue #9** describing what was done.
+- ❌ **Do not auto-generate Alembic migrations from SQLAlchemy models.** DDL is hand-written in `sql/`. Alembic calls `op.execute()` on those files. See DEC-009.
+- ❌ **Do not introduce data leakage in ML feature views.** Features must only use data that was knowable at the time the prediction would be made. Rolling window features must use `ROWS BETWEEN N PRECEDING AND 1 PRECEDING` — never `CURRENT ROW` for target-adjacent features.
 
 ---
 
-## 8. Open Questions (as of 2026-05-19)
+## 8. Open Questions
 
-These are unresolved design questions that the repo owner should answer before the relevant work begins.
+All open questions from the initial session have been resolved. See Decision Log entries DEC-007 through DEC-011.
 
-| # | Question | Relevant Work |
-|---|----------|---------------|
-| OQ-1 | Should `raw_fangraphs` and `raw_bref` have fully typed stat tables (one column per stat), or is a JSONB payload approach acceptable for a first pass? | Steps 3 / Milestone 2 |
-| OQ-2 | For the Retrosheet event layer: should `raw_retrosheet` and `raw_chadwick` be merged into one schema since they describe the same source events, or kept separate to reflect the different parsing tools? | Step 4 |
-| OQ-3 | What is the intended Alembic strategy — auto-generate from SQLAlchemy ORM models, or manage DDL files manually in `sql/` and use Alembic only for versioning? | Milestone 2 |
-| OQ-4 | Is there a target grain for `raw_mlbapi`? The StatsAPI has 100+ endpoints — should every endpoint get its own raw table, or should responses be stored as JSONB blobs with typed extraction in staging? | Step (TBD) |
-| OQ-5 | Should the ML Ops layer (`070_ml_ops`) use PostgreSQL materialized views exclusively, or is there a plan to export feature tables to Parquet / S3 for training? | Milestone 3+ |
+| # | Question | Status | Decision |
+|---|----------|--------|----------|
+| OQ-1 | FanGraphs/BRef: typed tables vs JSONB? | ✅ Resolved | DEC-007: Fully typed |
+| OQ-2 | raw_retrosheet + raw_chadwick: merge or separate? | ✅ Resolved | DEC-008: Keep separate |
+| OQ-3 | Alembic strategy? | ✅ Resolved | DEC-009: Manual DDL + Alembic version tracking only |
+| OQ-4 | MLB Stats API grain? | ✅ Resolved | DEC-010: JSONB ingest → typed staging |
+| OQ-5 | ML Ops: materialized views vs Parquet/S3? | ✅ Resolved | DEC-011: MVs primary + Parquet export optional |

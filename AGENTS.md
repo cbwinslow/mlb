@@ -21,7 +21,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 6. **Idempotent DDL.** All CREATE statements use `CREATE TABLE IF NOT EXISTS`. All ALTER statements use `IF NOT EXISTS` for new columns.
 7. **Always stay in a transaction.** Every SQL file must start with `BEGIN;` and end with `COMMIT;`.
 
-> **See also:** [OBJECTIVES.md](./OBJECTIVES.md) for the full rationale behind each principle, the layer contracts, naming conventions, decision log, and a list of things agents must NOT do.
+> **See also:** [OBJECTIVES.md](./OBJECTIVES.md) for the full rationale behind each principle, the layer contracts, naming conventions, decision log (DEC-001–011), and a list of things agents must NOT do.
 
 ---
 
@@ -62,11 +62,11 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | File | Schema(s) | Status |
 |------|-----------|--------|
 | `sql/040_raw/001_raw_retrosheet.sql` | `raw_retrosheet` | ✅ Complete |
-| `sql/040_raw/002_raw_chadwick.sql` | `raw_chadwick` | 🟡 Partial — cwevent only has ~35 of 96 fields |
+| `sql/040_raw/002_raw_chadwick.sql` | `raw_chadwick` | ✅ Complete (96-field cwevent + cwgame + cwsub) — 2026-05-19 |
 | `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | ✅ Complete (110 cols) — 2026-05-19 |
-| `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | 🔴 Needs audit |
-| `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | 🟡 Partial — ~5 of 21 tables present |
-| `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | 🟡 Partial — payload blobs only, no typed stat tables |
+| `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | 🟡 Audited — JSONB ingest tables present; typed staging tables pending |
+| `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | ✅ Complete (all 21 tables) — 2026-05-19 |
+| `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | 🟡 FG/BRef payload tables present; typed stat tables pending (DEC-007) |
 
 ---
 
@@ -93,24 +93,42 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 ---
 
+## ML Ops Layer File Map
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `sql/070_ml_ops/001_ml_registry.sql` | ML model registry tables (`ml.model_family`, `ml.problem_definition`, `ml.model_definition`) | ✅ Complete |
+| `sql/070_ml_ops/002_feature_store.sql` | Feature store tables | ✅ Complete |
+| `sql/070_ml_ops/003_predictions_backtests_liveops.sql` | Prediction outputs, backtest runs, live ops tables | ✅ Complete |
+| `sql/070_ml_ops/004_workspace_security.sql` | Workspace roles and security | ✅ Complete |
+| `sql/070_ml_ops/005_workspace_rls.sql` | Row-level security policies | ✅ Complete |
+| `sql/070_ml_ops/006_marts_materialized_views.sql` | ML model management MVs (`mv_workspace_model_summary` etc.) | ✅ Complete |
+| `sql/070_ml_ops/007_ingestion_orchestration.sql` | Ingestion scheduling and orchestration tables | ✅ Complete |
+| `sql/070_ml_ops/008_api_service_contracts.sql` | API service contract tables | ✅ Complete |
+| `sql/070_ml_ops/009_source_ingestion_specs.sql` | Source ingestion spec tables | ✅ Complete |
+| `sql/070_ml_ops/010_mv_statcast_player_summary.sql` | **Baseball analytics MVs**: `mv_player_statcast_summary`, `mv_pitch_arsenal_by_season`, `mv_game_score_context` | ✅ Added 2026-05-19 |
+
+---
+
 ## Known Outstanding Work (see also [Issue #9](https://github.com/cbwinslow/mlb/issues/9))
 
 ### Completed ✅
 - [x] **Step 1:** `raw_statcast.pitch` expanded to full 110-column spec (`003_raw_statcast.sql`)
-- [x] **Step 2:** 16 missing Lahman tables added to `005_raw_lahman.sql`
-- [x] **Step 3:** Typed stat tables added to `raw_fangraphs` and `raw_bref` in `006_raw_web_sources.sql`
-- [x] **Step 4:** `raw_chadwick.cwevent` expanded to full 96-field spec in `002_raw_chadwick.sql`
-- [x] **Step 5:** `raw_mlbapi` audit completed
-- [x] **Step 6:** `stg.player_identity` — missing unique indexes added; `updated_at` triggers added to all 4 identity tables; auto-resolution trigger + resolution audit log added (`004_identity_trigger_and_indexes.sql`)
-- [x] **Step 7:** `core.pitch` expanded to mirror full `raw_statcast.pitch` (74 columns added); `updated_at` triggers fixed on all 4 core entity tables; missing `bbref`/`fangraphs` unique indexes added to `core.player` (`004_core_pitch_alter.sql`)
+- [x] **Step 2:** All 21 Lahman tables added to `005_raw_lahman.sql`
+- [x] **Step 3:** FanGraphs/BRef payload tables added to `006_raw_web_sources.sql` (typed tables pending — DEC-007)
+- [x] **Step 4:** `raw_chadwick.cwevent` expanded to full 96-field spec; `cwgame` and `cwsub` complete (`002_raw_chadwick.sql`)
+- [x] **Step 5:** `raw_mlbapi` audit complete; JSONB ingest tables present
+- [x] **Step 6:** `stg.player_identity` — missing unique indexes added; `updated_at` triggers added; auto-resolution trigger + audit log added
+- [x] **Step 7:** `core.pitch` expanded to mirror full `raw_statcast.pitch` (74 columns added); triggers and indexes fixed
 - [x] **Step 8:** `OBJECTIVES.md` written; `AGENTS.md` updated
+- [x] **Step 9:** All 5 open questions resolved as DEC-007–011; `010_mv_statcast_player_summary.sql` added with 3 baseball analytics MVs
 
 ### Outstanding 🔲
-- [ ] **Next:** Audit `070_ml_ops` — verify `mv_player_statcast_summary` exists and covers new `core.pitch` columns (bat tracking, arm angle, expected outcomes)
-- [ ] **Next:** Audit `raw_mlbapi` typed tables against current MLB Stats API endpoint documentation
-- [ ] **Next:** Expand `raw_fangraphs` and `raw_bref` from payload blobs to typed stat tables
-- [ ] **Next:** Complete `raw_chadwick.cwgame` and `raw_chadwick.cwsub` tables (only cwevent has been addressed)
-- [ ] **Next:** Alembic integration for schema versioning (see ROADMAP.md Milestone 2)
+- [ ] **Next:** Add fully typed stat tables to `raw_fangraphs` and `raw_bref` (DEC-007) — replace JSONB-only payload tables
+- [ ] **Next:** Add typed extraction staging tables for `raw_mlbapi` JSONB blobs (DEC-010)
+- [ ] **Next:** Alembic integration — manual DDL in `sql/` + Alembic version tracking only (DEC-009); see ROADMAP.md Milestone 2
+- [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-011)
+- [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
 
 ---
 
@@ -118,7 +136,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 ### Before Any Work
 1. Read this file.
-2. Read [OBJECTIVES.md](./OBJECTIVES.md) — especially Section 7 (What Agents Must NOT Do).
+2. Read [OBJECTIVES.md](./OBJECTIVES.md) — especially Sections 6 (Decision Log) and 7 (What Agents Must NOT Do).
 3. Read [Issue #9](https://github.com/cbwinslow/mlb/issues/9) for current task status.
 4. Fetch the actual current content of any file you plan to modify from the GitHub API — **never assume or guess** at current file state.
 5. Check the SHA of the file before pushing an update (required by GitHub API for in-place updates).
@@ -131,6 +149,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - Add a `COMMENT ON COLUMN` for any column whose purpose is not obvious.
 - When adding an `updated_at` column, **always attach the `stg.set_updated_at()` trigger** (or create an equivalent).
 - Do not add `NOT NULL` constraints to new columns on populated tables.
+- Do not auto-generate Alembic migrations from SQLAlchemy models (see DEC-009).
 
 ### After Work
 - Post a timestamped update to [Issue #9](https://github.com/cbwinslow/mlb/issues/9) describing what was completed.
