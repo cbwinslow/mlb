@@ -67,7 +67,7 @@ The hardest problem in baseball data is that every source uses different player,
 - Pending placeholders have `identity_confidence_score = 0` and `identity_source = 'auto:statcast'`
 - A downstream enrichment job (pybaseball `playerid_lookup()` or Chadwick register) resolves the remaining cross-source IDs and bumps `confidence_score` to `1.0`
 - The `stg.player_identity_resolution_log` table audits every trigger firing
-- Use `stg.v_players_pending_enrichment` to drive the enrichment job queue
+- Use `stg.v_players_pending_enrichment` to view the enrichment job queue
 - **Never block a raw insert waiting for identity resolution.** Raw capture must never fail due to bridge lag.
 
 ### P5 — Core Layer Mirrors Raw, Fully
@@ -197,15 +197,15 @@ The following defines the completeness target for each raw source. "Complete" me
 
 | Source | Raw Table(s) | Coverage Target | Current Status (2026-05-19) |
 |--------|-------------|-----------------|-----------------------------|
-| Statcast (Baseball Savant) | `raw_statcast.pitch` | 100% of all documented columns | ✅ Complete (110 cols) |
-| Lahman | `raw_lahman.*` | All ~21 CSV tables, 100% of columns | 🟡 ~5 of 21 tables present |
-| Retrosheet | `raw_retrosheet.*` | Event, game, sub, roster files | 🟡 Partial |
-| Chadwick | `raw_chadwick.*` | Full cwevent 96-field spec + cwgame + cwsub | 🟡 ~35 of 96 cwevent fields |
-| MLB Stats API | `raw_mlbapi.*` | All endpoint response fields | 🔴 Needs audit |
-| FanGraphs | `raw_fangraphs.*` | Typed stat tables per category | 🔴 Payload-only (no typed tables) |
-| Baseball Reference | `raw_bref.*` | Typed stat tables per category | 🔴 Payload-only (no typed tables) |
-| ESPN | `raw_espn.*` | Schedule, scores, odds | 🔴 Payload-only |
-| Odds | `raw_odds.*` | Pre-game and live odds | 🔴 Payload-only |
+| Statcast (Baseball Savant) | `raw_statcast.pitch` | 100% of all documented columns | ✅ Complete — v1 base + v2 migration applied (all 2024+ bat tracking, win expectancy, age, score diff cols, 3 field renames corrected) |
+| Lahman | `raw_lahman.*` | All 23 CSV tables, 100% of columns | ✅ Complete — all 23 tables present including salaries, awards, hall_of_fame, schools, college_playing, appearances, post-season |
+| Retrosheet | `raw_retrosheet.*` | Event, game, sub, roster files | ✅ Complete — event_file, game, record, info, start, sub, play, comment, data, adjustment all present |
+| Chadwick | `raw_chadwick.*` | Full cwevent 96-field spec + cwgame + cwsub | ✅ Complete — full 96-field cwevent table typed; cwevent_file, cwgame, cwsub present |
+| MLB Stats API | `raw_mlbapi.*` | All endpoint response fields | 🟡 Scaffold present — JSONB ingest pattern per DEC-010; typed extraction tables needed |
+| FanGraphs | `raw_fangraphs.*` | Typed stat tables per category | 🟡 Partial — batting/pitching/fielding standard+advanced+statcast typed; missing splits, baserunning, plate_discipline |
+| Baseball Reference | `raw_bref.*` | Typed stat tables per category | 🟡 Partial — batting/pitching/fielding standard+value typed; missing splits, baserunning, win_probability |
+| ESPN | `raw_espn.*` | Schedule, scores, player context | 🔴 Metadata only — request/page tables exist; no typed content tables |
+| Odds | `raw_odds.*` | Pre-game and live odds | 🔴 Metadata only — provider_request/payload tables exist; no typed line/result tables |
 
 ---
 
@@ -223,7 +223,7 @@ This section records significant design decisions and their rationale. New decis
 ---
 
 ### DEC-002 — ALTER TABLE Preferred Over Full Rewrites (2026-05-19)
-**Decision:** When adding columns to existing tables, use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in a new `*_alter.sql` file rather than rewriting the original `CREATE TABLE`.
+**Decision:** When adding columns to existing tables, use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in a new `*_migration_vX.sql` file rather than rewriting the original `CREATE TABLE`.
 **Rationale:** Preserves history of when columns were added, is safe to apply against a database that already has the table populated, and avoids full table rewrites that could lock large tables.
 **Exception:** If a table needs structural changes (column type changes, constraint changes, PK changes) a documented breaking-change migration is required.
 
@@ -231,68 +231,68 @@ This section records significant design decisions and their rationale. New decis
 
 ### DEC-003 — Auto-Resolution Trigger Strategy: Partial Insert, Non-Blocking (2026-05-19)
 **Decision:** When a new MLBAM player ID arrives in `raw_statcast.pitch`, the trigger inserts a pending placeholder row into `stg.player_identity` (Option A — pragmatic partial insert). The Statcast row commits regardless of bridge state.
-**Rationale:** Raw capture must never fail due to bridge lag. A pending placeholder with `confidence_score=0` is immediately useful for downstream enrichment and does not block analysis — it simply means the cross-source IDs are not yet resolved. This is preferable to Option B (block insert until resolved) which would make bulk historical loads fragile.
+**Rationale:** Raw capture must never fail due to bridge lag. A pending placeholder with `confidence_score=0` is immediately useful for downstream enrichment and does not block analysis — it simply means the cross-source IDs are not yet resolved.
 **Mechanism:** `stg.fn_auto_resolve_statcast_player()` + `trg_statcast_pitch_player_resolve`.
 
 ---
 
 ### DEC-004 — Core Layer Must Mirror Raw, Fully (2026-05-19)
 **Decision:** `core.pitch` must contain every column present in `raw_statcast.pitch`. No selective promotion of "useful" columns.
-**Rationale:** The core layer is the single source of truth for analysis. If analysts must join back to raw to get a column, the core layer has failed its purpose. The 74-column gap found in Step 7 was a concrete demonstration of this failure — bat tracking, spray coordinates, defensive alignment, and score context were all missing from core.
-**Implementation:** `sql/060_core/004_core_pitch_alter.sql` adds all 74 missing columns.
+**Rationale:** The core layer is the single source of truth for analysis. If analysts must join back to raw to get a column, the core layer has failed its purpose.
+**Implementation:** `sql/060_core/004_core_pitch_alter.sql` adds all missing columns.
 
 ---
 
 ### DEC-005 — updated_at Requires a Trigger, Not Just a Column (2026-05-19)
 **Decision:** Any table with an `updated_at TIMESTAMPTZ` column must have a `BEFORE UPDATE` trigger attached. The column alone does nothing.
-**Rationale:** Found in both staging and core layers — 8 tables total had `updated_at` columns that were never actually updated. The shared `stg.set_updated_at()` function handles this for all identity and entity tables.
+**Rationale:** Found in both staging and core layers — 8 tables total had `updated_at` columns that were never actually updated.
 **Fixed in:** `sql/050_staging/004_identity_trigger_and_indexes.sql` (staging), `sql/060_core/004_core_pitch_alter.sql` (core).
 
 ---
 
 ### DEC-006 — Unique Partial Indexes on All Five Cross-Source ID Columns (2026-05-19)
-**Decision:** All five cross-source player ID columns (`mlbam_player_id`, `retrosheet_player_id`, `lahman_player_id`, `bbref_player_id`, `fangraphs_player_id`) must have `CREATE UNIQUE INDEX ... WHERE col IS NOT NULL` on both `stg.player_identity` and `core.player`.
-**Rationale:** Without these, two bridge rows for the same player can coexist under different source IDs, and lookups by bbref or fangraphs ID perform full sequential scans. Found that only mlbam, retrosheet, and lahman were indexed — bbref and fangraphs were missing on both tables.
+**Decision:** All five cross-source player ID columns must have `CREATE UNIQUE INDEX ... WHERE col IS NOT NULL` on both `stg.player_identity` and `core.player`.
+**Rationale:** Without these, duplicate bridge rows can coexist and lookups by bbref or fangraphs ID perform full sequential scans.
 **Fixed in:** `sql/050_staging/004_identity_trigger_and_indexes.sql`, `sql/060_core/004_core_pitch_alter.sql`.
 
 ---
 
 ### DEC-007 — FanGraphs and BRef Raw Tables: Fully Typed (2026-05-19)
-**Decision:** `raw_fangraphs` and `raw_bref` will have fully typed stat tables with one column per stat field. The current JSONB payload-only approach in `006_raw_web_sources.sql` is a temporary scaffold and must be replaced.
-**Rationale:** JSONB blobs cannot be joined or aggregated without runtime JSON extraction (`->>`), which is slow, unindexable without GIN, and opaque to query planners. Fully typed tables allow standard SQL aggregation, FK relationships, and column-level statistics used by the query planner. The owner confirmed: typed tables are the target, even if more work.
-**Strategy:** Ingest to JSONB payload tables first if needed for a quick initial load, then run a one-time migration to populate the typed tables. Once typed tables are populated, the payload blobs become optional audit artifacts.
-**Access method:** pybaseball `batting_stats()`, `pitching_stats()`, `fielding_stats()`, `team_batting()`, `team_pitching()`, and Statcast leaderboard functions for FanGraphs; direct HTML scrape or pybaseball for BRef.
+**Decision:** `raw_fangraphs` and `raw_bref` will have fully typed stat tables with one column per stat field.
+**Rationale:** JSONB blobs cannot be joined or aggregated without runtime JSON extraction, which is slow and opaque to query planners.
+**Strategy:** Ingest to JSONB payload tables first if needed, then migrate to typed tables. Once typed tables are populated, the payload blobs become optional audit artifacts.
 
 ---
 
 ### DEC-008 — raw_retrosheet and raw_chadwick: Keep Separate (2026-05-19)
 **Decision:** `raw_retrosheet` and `raw_chadwick` remain separate schemas.
-**Rationale:** After reviewing both files, the schemas are fundamentally different tools producing different output shapes:
-- `raw_retrosheet` stores the **raw event file records** exactly as they appear in Retrosheet `.EVA`/`.EVN` files: line-by-line records (`record_type` IN `id/version/info/start/sub/play/com/data/badj/...`), with `raw_line TEXT` and `raw_fields TEXT[]` preserving the source exactly. It is a faithful byte-level transcript of the source files.
-- `raw_chadwick` stores the **parsed and computed output** of the Chadwick Bureau CLI tools (`cwevent`, `cwgame`, `cwsub`): 96 typed, named columns per play event, with fielder IDs, base destinations, assist/error credits, linescore accumulators, and PA state. This is a derived, structured interpretation of the same source.
-They are related (cwevent_file FK references raw_retrosheet.event_file) but serve different purposes: retrosheet = raw file archive, chadwick = parsed play-by-play. Merging them would lose this distinction and make it impossible to diagnose parsing differences or re-parse from raw.
+**Rationale:** `raw_retrosheet` = raw event file archive (line-by-line, byte-level). `raw_chadwick` = parsed, typed output of Chadwick Bureau CLI tools (96 columns per play). They serve different purposes and are linked by FK.
 
 ---
 
 ### DEC-009 — Alembic Strategy: Manual DDL + Alembic for Version Tracking Only (2026-05-19)
-**Decision:** DDL is managed manually in `sql/` files as the authoritative source of truth. Alembic is used exclusively for version tracking and migration execution ordering — not for auto-generation from SQLAlchemy models.
-**Rationale:** This is the industry-standard approach for data warehouses and analytics platforms where DDL complexity (partitioning, custom types, GIN indexes, materialized views, triggers, RLS) far exceeds what Alembic auto-generate can handle correctly. Auto-generated migrations from ORM models routinely produce incorrect DDL for PostgreSQL-specific features. The pattern used by projects like dbt, Apache Airflow, and Metabase is: write DDL by hand, use the migration tool only to track what has been applied and in what order. Alembic's `op.execute()` can run raw SQL from the `sql/` files directly.
-**Workflow:** Each new `sql/` file gets a corresponding Alembic version file that calls `op.execute(open('sql/path/to/file.sql').read())`. The Alembic history provides the audit trail; the `sql/` files provide the readable, reviewable DDL.
+**Decision:** DDL is managed manually in `sql/` files. Alembic tracks execution order only via `op.execute()` calls — no auto-generation from SQLAlchemy models.
+**Rationale:** Data warehouse DDL complexity (partitioning, GIN indexes, materialized views, triggers) far exceeds what Alembic auto-generate handles correctly.
 
 ---
 
 ### DEC-010 — MLB Stats API: JSONB Staging Then Typed Tables (2026-05-19)
-**Decision:** MLB Stats API responses are first ingested as JSONB blobs into endpoint-specific raw tables (one table per major endpoint family, e.g. `raw_mlbapi.schedule`, `raw_mlbapi.boxscore`, `raw_mlbapi.player`). A subsequent staging step extracts typed columns into normalized tables.
-**Rationale:** The MLB Stats API has 100+ endpoints with deeply nested JSON and fields that change between API versions. Ingesting the full response payload first provides a complete audit record and allows re-extraction without re-calling the API. The two-step approach (raw JSONB → staged typed) is the correct operational pattern: fast, reliable ingest that never loses data, with typed extraction decoupled from the HTTP call. This mirrors how production data pipelines at MLB.com, Fangraphs, and similar organizations handle the Stats API internally.
-**Grain:** One row per API response object (one row per game for `/schedule`, one row per batter appearance for `/boxscore` batting lines, etc.). Endpoint families group related endpoints into one table rather than one table per endpoint.
+**Decision:** MLB Stats API responses are first ingested as JSONB blobs, then extracted to typed normalized tables in a subsequent staging step.
+**Rationale:** 100+ endpoints with deeply nested, version-varying JSON. Ingest-first pattern provides a complete audit record and decouples extraction from HTTP calls.
 
 ---
 
 ### DEC-011 — ML Ops Export: PostgreSQL Materialized Views Primary; Parquet/S3 as Optional Export (2026-05-19)
-**Decision:** PostgreSQL materialized views are the primary ML feature serving layer. A Parquet/S3 export capability will be added as an optional export path, not a replacement.
-**Rationale:** Materialized views in PostgreSQL provide immediate queryability, are refreshable on demand (`REFRESH MATERIALIZED VIEW CONCURRENTLY`), support `CONCURRENTLY` so reads are never blocked during refresh, and integrate directly with the existing SQLAlchemy/FastAPI/MCP stack without any additional infrastructure. They are the correct primary choice.
-Parquet/S3 export is valuable for: (a) training large ML models in Python (pandas/sklearn/PyTorch) where reading from Postgres over many epochs is slow, (b) sharing feature datasets with R users (R natively reads Parquet via `arrow` package), (c) reproducibility — a frozen Parquet snapshot of training data cannot be accidentally changed by a `REFRESH`. A future `baseball export-features --format parquet --dest s3://...` CLI command will cover this use case. R users specifically benefit from Parquet because `arrow::read_parquet()` is dramatically faster than `RPostgres` for large feature tables.
-**Implementation order:** Materialized views first (in `070_ml_ops`). Parquet export CLI added in Milestone 3 ingestion work.
+**Decision:** PostgreSQL materialized views are the primary ML feature serving layer. Parquet/S3 export added as an optional path.
+**Rationale:** MVs integrate directly with existing stack. Parquet export is valuable for large model training in Python/R (`arrow::read_parquet()` is dramatically faster than `RPostgres` for large feature tables) and for reproducibility of training snapshots.
+**Implementation order:** Materialized views first. Parquet export CLI in Milestone 3.
+
+---
+
+### DEC-012 — Migration File Naming: Separate Versioned Files, Not In-Place Rewrites (2026-05-19)
+**Decision:** Additive changes to existing raw tables use separate migration files named `NNN_source_migration_vX.sql` rather than modifying the original `CREATE TABLE` file in-place.
+**Rationale:** In-place rewriting of a CREATE TABLE file that is already applied causes confusion about "what to run on a fresh DB" vs "what has already been applied." The `003_raw_statcast_migration_v2.sql` file established this pattern.
+**Note:** This supersedes the guidance in Issue #9 Step 1 which said "modify original files in-place." The versioned migration approach is now canonical.
 
 ---
 
@@ -300,29 +300,68 @@ Parquet/S3 export is valuable for: (a) training large ML models in Python (panda
 
 This section exists because well-intentioned agents have made these mistakes before.
 
-- ❌ **Do not create a new SQL file when modifying an existing table.** Use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in-place or in a dedicated `*_alter.sql` migration. Do not duplicate `CREATE TABLE` statements.
+- ❌ **Do not modify the original `CREATE TABLE` file for an existing table.** Write a new versioned `*_migration_vX.sql` file. See DEC-012.
 - ❌ **Do not drop or rename columns** without a documented breaking-change migration and an issue.
-- ❌ **Do not add a `NOT NULL` constraint to a new column** on an existing table — it will fail if any rows exist. New columns must be nullable or have a `DEFAULT`.
+- ❌ **Do not add a `NOT NULL` constraint to a new column** on an existing table — it will fail if any rows exist.
 - ❌ **Do not use sentinel values** (`-999`, `0`, `'N/A'`, `'UNKNOWN'`) for missing data. Use `NULL`.
 - ❌ **Do not mix sources in a single raw table.** Each source gets its own schema and its own tables.
-- ❌ **Do not assume file contents** — always fetch the current file from the GitHub API before modifying it. The file may have changed since your context was built.
+- ❌ **Do not assume file contents** — always fetch the current file from the GitHub API before modifying it.
 - ❌ **Do not block raw inserts** waiting for identity resolution. The trigger must be `AFTER INSERT` and non-blocking.
-- ❌ **Do not create an `updated_at` column without attaching the `stg.set_updated_at()` trigger** (or an equivalent) to it.
-- ❌ **Do not add an index without a documented access pattern.** Indexes are not free — they slow writes and consume disk space.
-- ❌ **Do not commit without posting a timestamped update to Issue #9** describing what was done.
-- ❌ **Do not auto-generate Alembic migrations from SQLAlchemy models.** DDL is hand-written in `sql/`. Alembic calls `op.execute()` on those files. See DEC-009.
-- ❌ **Do not introduce data leakage in ML feature views.** Features must only use data that was knowable at the time the prediction would be made. Rolling window features must use `ROWS BETWEEN N PRECEDING AND 1 PRECEDING` — never `CURRENT ROW` for target-adjacent features.
+- ❌ **Do not create an `updated_at` column without attaching the `stg.set_updated_at()` trigger.**
+- ❌ **Do not add an index without a documented access pattern.**
+- ❌ **Do not commit without posting a timestamped update to the relevant tracking issue.**
+- ❌ **Do not auto-generate Alembic migrations from SQLAlchemy models.** See DEC-009.
+- ❌ **Do not introduce data leakage in ML feature views.** Use `ROWS BETWEEN N PRECEDING AND 1 PRECEDING`.
 
 ---
 
 ## 8. Open Questions
 
-All open questions from the initial session have been resolved. See Decision Log entries DEC-007 through DEC-011.
+All open questions resolved. See Decision Log.
 
 | # | Question | Status | Decision |
 |---|----------|--------|----------|
-| OQ-1 | FanGraphs/BRef: typed tables vs JSONB? | ✅ Resolved | DEC-007: Fully typed |
-| OQ-2 | raw_retrosheet + raw_chadwick: merge or separate? | ✅ Resolved | DEC-008: Keep separate |
-| OQ-3 | Alembic strategy? | ✅ Resolved | DEC-009: Manual DDL + Alembic version tracking only |
-| OQ-4 | MLB Stats API grain? | ✅ Resolved | DEC-010: JSONB ingest → typed staging |
-| OQ-5 | ML Ops: materialized views vs Parquet/S3? | ✅ Resolved | DEC-011: MVs primary + Parquet export optional |
+| OQ-1 | FanGraphs/BRef: typed tables vs JSONB? | ✅ Resolved | DEC-007 |
+| OQ-2 | raw_retrosheet + raw_chadwick: merge or separate? | ✅ Resolved | DEC-008 |
+| OQ-3 | Alembic strategy? | ✅ Resolved | DEC-009 |
+| OQ-4 | MLB Stats API grain? | ✅ Resolved | DEC-010 |
+| OQ-5 | ML Ops: materialized views vs Parquet/S3? | ✅ Resolved | DEC-011 |
+| OQ-6 | Migration file strategy: in-place vs versioned? | ✅ Resolved | DEC-012 |
+
+---
+
+## 9. Outstanding Work Items
+
+Active backlog ordered by dependency. Each item links to its GitHub issue.
+
+### Raw Layer (040)
+
+| # | Task | File | Status | Issue |
+|---|------|------|--------|-------|
+| R-1 | Audit & complete `raw_mlbapi` typed extraction tables | `sql/040_raw/004_raw_mlbapi.sql` | 🟡 Scaffold only | #10 |
+| R-2 | `raw_fangraphs` missing tables: splits, baserunning, plate_discipline | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #11 |
+| R-3 | `raw_bref` missing tables: splits, baserunning, win_probability | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #11 |
+| R-4 | `raw_espn` typed content tables (schedule, scores, player) | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #12 |
+| R-5 | `raw_odds` typed line/result tables | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #12 |
+
+### Staging Layer (050)
+
+| # | Task | File | Status | Issue |
+|---|------|------|--------|-------|
+| S-1 | Audit `stg.player_identity` — confirm all 4 cross-source keys | `sql/050_staging/` | 🟡 Needs audit | #13 |
+| S-2 | Identity upsert trigger `trg_statcast_pitch_player_resolve` | `sql/050_staging/004_identity_trigger_and_indexes.sql` | 🔴 Not started | #13 |
+| S-3 | `stg.game_identity` cross-source game ID bridge | `sql/050_staging/` | 🔴 Not started | #14 |
+| S-4 | `stg.v_players_pending_enrichment` enrichment queue view | `sql/050_staging/` | 🔴 Not started | #13 |
+
+### Core Layer (060)
+
+| # | Task | File | Status | Issue |
+|---|------|------|--------|-------|
+| C-1 | Sync `core.pitch` with `raw_statcast.pitch` v2 columns | `sql/060_core/004_core_pitch_alter.sql` | 🔴 Not started | #15 |
+
+### ML Ops Layer (070)
+
+| # | Task | File | Status | Issue |
+|---|------|------|--------|-------|
+| M-1 | `mv_player_statcast_summary` materialized view | `sql/070_ml_ops/` | 🔴 Not started | #16 |
+| M-2 | Parquet export CLI `baseball export-features --format parquet` | Python package | 🔴 Not started | #17 |
