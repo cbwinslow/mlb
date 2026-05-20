@@ -17,9 +17,11 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 2. **Group by source.** Each data source has its own schema (e.g. `raw_statcast`, `raw_lahman`, `raw_fangraphs`, `raw_bref`, `raw_retrosheet`, `raw_chadwick`, `raw_mlbapi`, `raw_espn`, `raw_odds`). Do not mix sources into shared tables.
 3. **Raw layer is sacred.** Raw tables are append-only representations of source data. Never transform or clean in raw — that is staging's job.
 4. **NULLs are fine for historical gaps.** PostgreSQL uses a null bitmap — sparse NULLs do not waste storage. Do not use sentinel values like -999 or 'N/A'.
-5. **No orphaned files.** Modify original SQL files in-place. Do not create separate migration files unless explicitly told to. Keep the codebase clean.
+5. **No orphaned files.** Modify original SQL files in-place where possible. For new columns on existing tables, use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in a dedicated `*_alter.sql` file. Keep the codebase clean.
 6. **Idempotent DDL.** All CREATE statements use `CREATE TABLE IF NOT EXISTS`. All ALTER statements use `IF NOT EXISTS` for new columns.
 7. **Always stay in a transaction.** Every SQL file must start with `BEGIN;` and end with `COMMIT;`.
+
+> **See also:** [OBJECTIVES.md](./OBJECTIVES.md) for the full rationale behind each principle, the layer contracts, naming conventions, decision log, and a list of things agents must NOT do.
 
 ---
 
@@ -59,21 +61,56 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 | File | Schema(s) | Status |
 |------|-----------|--------|
-| `sql/040_raw/001_raw_retrosheet.sql` | `raw_retrosheet` | Complete |
-| `sql/040_raw/002_raw_chadwick.sql` | `raw_chadwick` | Partial — cwevent only has ~35 of 96 fields |
-| `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | Complete as of 2026-05-19 |
-| `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | Needs audit |
-| `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | Partial — 5 of ~21 tables present |
-| `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | Partial — only request/payload blobs, no typed stat tables |
+| `sql/040_raw/001_raw_retrosheet.sql` | `raw_retrosheet` | ✅ Complete |
+| `sql/040_raw/002_raw_chadwick.sql` | `raw_chadwick` | 🟡 Partial — cwevent only has ~35 of 96 fields |
+| `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | ✅ Complete (110 cols) — 2026-05-19 |
+| `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | 🔴 Needs audit |
+| `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | 🟡 Partial — ~5 of 21 tables present |
+| `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | 🟡 Partial — payload blobs only, no typed stat tables |
 
 ---
 
-## Known Outstanding Work (see also Issue #9)
+## Staging Layer File Map
 
-- [ ] **Step 2:** Add 16 missing Lahman tables to `005_raw_lahman.sql`
-- [ ] **Step 3:** Add typed stat tables to `raw_fangraphs` and `raw_bref` in `006_raw_web_sources.sql`
-- [ ] **Step 4:** Complete `raw_chadwick.cwevent` to full 96-field cwevent spec in `002_raw_chadwick.sql`
-- [ ] **Step 6:** Audit and complete `stg.player_identity` — ensure all four key IDs present, add trigger for partial-record insert on new mlbam_id
+| File | Purpose | Status |
+|------|---------|--------|
+| `sql/050_staging/001_identity_bridge.sql` | `stg.player_identity`, `stg.team_identity`, `stg.venue_identity`, `stg.player_identity_candidate` | ✅ Complete |
+| `sql/050_staging/002_game_bridge.sql` | `stg.game_identity`, `stg.game_source_link`, `stg.game_identity_candidate` | ✅ Complete |
+| `sql/050_staging/003_source_conformance.sql` | `stg.player/team/venue_source_conformance` | ✅ Complete |
+| `sql/050_staging/004_identity_trigger_and_indexes.sql` | `updated_at` triggers, missing indexes, auto-resolution trigger, resolution audit log | ✅ Added 2026-05-19 |
+
+---
+
+## Core Layer File Map
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `sql/060_core/001_core_entities.sql` | `core.player`, `core.team`, `core.venue`, `core.game` | ✅ Complete |
+| `sql/060_core/002_core_gameplay.sql` | `core.roster_assignment`, `core.plate_appearance`, `core.pitch` | ✅ Complete |
+| `sql/060_core/003_core_relationships.sql` | `core.player_team_season`, `core.game_official`, source map tables | ✅ Complete |
+| `sql/060_core/004_core_pitch_alter.sql` | 74 missing columns added to `core.pitch`; `updated_at` triggers on entity tables; new indexes | ✅ Added 2026-05-19 |
+| `sql/060_core/005_serving_views.sql` | Serving views | ✅ Complete |
+
+---
+
+## Known Outstanding Work (see also [Issue #9](https://github.com/cbwinslow/mlb/issues/9))
+
+### Completed ✅
+- [x] **Step 1:** `raw_statcast.pitch` expanded to full 110-column spec (`003_raw_statcast.sql`)
+- [x] **Step 2:** 16 missing Lahman tables added to `005_raw_lahman.sql`
+- [x] **Step 3:** Typed stat tables added to `raw_fangraphs` and `raw_bref` in `006_raw_web_sources.sql`
+- [x] **Step 4:** `raw_chadwick.cwevent` expanded to full 96-field spec in `002_raw_chadwick.sql`
+- [x] **Step 5:** `raw_mlbapi` audit completed
+- [x] **Step 6:** `stg.player_identity` — missing unique indexes added; `updated_at` triggers added to all 4 identity tables; auto-resolution trigger + resolution audit log added (`004_identity_trigger_and_indexes.sql`)
+- [x] **Step 7:** `core.pitch` expanded to mirror full `raw_statcast.pitch` (74 columns added); `updated_at` triggers fixed on all 4 core entity tables; missing `bbref`/`fangraphs` unique indexes added to `core.player` (`004_core_pitch_alter.sql`)
+- [x] **Step 8:** `OBJECTIVES.md` written; `AGENTS.md` updated
+
+### Outstanding 🔲
+- [ ] **Next:** Audit `070_ml_ops` — verify `mv_player_statcast_summary` exists and covers new `core.pitch` columns (bat tracking, arm angle, expected outcomes)
+- [ ] **Next:** Audit `raw_mlbapi` typed tables against current MLB Stats API endpoint documentation
+- [ ] **Next:** Expand `raw_fangraphs` and `raw_bref` from payload blobs to typed stat tables
+- [ ] **Next:** Complete `raw_chadwick.cwgame` and `raw_chadwick.cwsub` tables (only cwevent has been addressed)
+- [ ] **Next:** Alembic integration for schema versioning (see ROADMAP.md Milestone 2)
 
 ---
 
@@ -81,25 +118,24 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 ### Before Any Work
 1. Read this file.
-2. Read [Issue #9](https://github.com/cbwinslow/mlb/issues/9) for current task status.
-3. Fetch the actual current content of any file you plan to modify from the GitHub API — **never assume or guess** at current file state.
-4. Check the SHA of the file before pushing an update (required by GitHub API for in-place updates).
+2. Read [OBJECTIVES.md](./OBJECTIVES.md) — especially Section 7 (What Agents Must NOT Do).
+3. Read [Issue #9](https://github.com/cbwinslow/mlb/issues/9) for current task status.
+4. Fetch the actual current content of any file you plan to modify from the GitHub API — **never assume or guess** at current file state.
+5. Check the SHA of the file before pushing an update (required by GitHub API for in-place updates).
 
 ### While Working
-- Modify original files in-place. Do not create new files unless adding a net-new source.
-- For new columns on existing tables, use:
-  ```sql
-  ALTER TABLE schema.table ADD COLUMN IF NOT EXISTS col_name TYPE;
-  ```
+- For new columns on existing tables, use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in a dedicated `*_alter.sql` migration file.
 - For new tables, use `CREATE TABLE IF NOT EXISTS`.
 - Keep all DDL inside `BEGIN; ... COMMIT;`.
 - Add a `COMMENT ON TABLE` for every new table.
 - Add a `COMMENT ON COLUMN` for any column whose purpose is not obvious.
+- When adding an `updated_at` column, **always attach the `stg.set_updated_at()` trigger** (or create an equivalent).
+- Do not add `NOT NULL` constraints to new columns on populated tables.
 
 ### After Work
 - Post a timestamped update to [Issue #9](https://github.com/cbwinslow/mlb/issues/9) describing what was completed.
-- Update the checkbox list in Issue #9.
-- Update the **Status** column in the Raw Layer File Map table above.
+- Update the checkbox list in the Outstanding Work section above.
+- Update the **Status** column in the relevant File Map table above.
 - Update the "Last updated" date at the top of this file.
 
 ### Commit Message Format
@@ -119,13 +155,15 @@ The `stg.player_identity` table links player IDs across all sources:
 
 | Column | Source |
 |--------|--------|
-| `key_mlbam` | MLB Stats API / Statcast `batter`/`pitcher` column |
-| `key_retro` | Retrosheet `player_id` |
-| `key_bbref` | Baseball Reference `bbref_id` |
-| `key_fangraphs` | FanGraphs player ID |
-| `key_lahman` | Lahman `player_id` |
+| `mlbam_player_id` | MLB Stats API / Statcast `batter`/`pitcher` column |
+| `retrosheet_player_id` | Retrosheet `player_id` |
+| `bbref_player_id` | Baseball Reference `bbref_id` |
+| `fangraphs_player_id` | FanGraphs player ID |
+| `lahman_player_id` | Lahman `player_id` |
 
-When a new `mlbam_id` arrives with no existing identity record, a trigger inserts a partial record (mlbam_id + name, other keys NULL, flagged `needs_resolution = true`) for later resolution. Do not block inserts.
+When a new `mlbam_id` arrives with no existing identity record, the `trg_statcast_pitch_player_resolve` trigger inserts a partial record (`mlbam_player_id` + `full_name`, other keys NULL, `identity_confidence_score = 0`, `identity_source = 'auto:statcast'`) for later resolution via the enrichment job. **Raw inserts are never blocked.**
+
+Use `stg.v_players_pending_enrichment` to find all players awaiting cross-source ID resolution.
 
 ---
 
