@@ -1,6 +1,7 @@
 -- =============================================================================
 -- Step 6: Identity bridge — updated_at triggers, missing indexes,
---         MLBAM auto-resolution trigger, and resolution audit log
+--         MLBAM auto-resolution trigger, resolution audit log,
+--         enrichment views, and manual-review queue
 --
 -- Apply after 001_identity_bridge.sql, 002_game_bridge.sql,
 -- 003_source_conformance.sql, and 005_staging_indexes.sql.
@@ -13,6 +14,7 @@ BEGIN;
 --
 -- Anomaly: all four identity tables have an updated_at column but NO trigger
 -- to maintain it. Every row perpetually shows its original created_at value.
+-- DEC-005: updated_at requires a trigger, not just a column.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION stg.set_updated_at()
 RETURNS TRIGGER
@@ -127,23 +129,9 @@ COMMENT ON TABLE stg.player_identity_resolution_log IS
 -- ---------------------------------------------------------------------------
 -- PART E: Auto-resolution trigger function
 --
--- When a new row is inserted into raw_statcast.pitch with an mlbam_player_id
--- (batter or pitcher) that does not yet exist in stg.player_identity, this
--- function inserts a PENDING placeholder row so the identity bridge is
--- immediately aware of the new entity.
---
--- Strategy (Option A — pragmatic partial insert):
---   - Insert with mlbam_player_id + player_name (from Statcast) + identity_source='auto'
---   - identity_confidence_score set to 0 (unresolved)
---   - A downstream enrichment job (pybaseball / Chadwick register lookup)
---     fills in the remaining IDs and bumps the confidence score
---   - If the ID already exists: no insert, log FOUND_EXISTING only
---   - If a race condition causes a unique violation: log CONFLICT_SKIPPED,
---     do not raise an error (non-blocking)
---
--- NOTE: This trigger fires AFTER INSERT to avoid blocking the Statcast load.
--- The statcast row is committed regardless of whether identity resolution
--- succeeds. This is intentional: raw capture must never fail due to bridge lag.
+-- DEC-003: raw capture must never fail due to bridge lag.
+-- Strategy: non-blocking partial insert. Trigger inserts a confidence=0
+-- placeholder AFTER the Statcast row commits. Downstream enrichment fills IDs.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION stg.fn_auto_resolve_statcast_player()
 RETURNS TRIGGER
@@ -155,9 +143,6 @@ DECLARE
     v_identity_id BIGINT;
     v_action      TEXT;
 BEGIN
-    -- Collect both batter and pitcher IDs from the inserted row;
-    -- deduplicate in case they happen to be the same person (rare but possible
-    -- in historic games with unusual lineups)
     v_mlbam_ids := ARRAY(
         SELECT DISTINCT unnest
         FROM   unnest(ARRAY[NEW.batter, NEW.pitcher]) AS unnest
@@ -166,7 +151,6 @@ BEGIN
 
     FOREACH v_mlbam_id IN ARRAY v_mlbam_ids
     LOOP
-        -- Check if already in bridge
         SELECT player_identity_id
         INTO   v_identity_id
         FROM   stg.player_identity
@@ -174,13 +158,11 @@ BEGIN
         LIMIT  1;
 
         IF FOUND THEN
-            -- Already exists — log and move on
             INSERT INTO stg.player_identity_resolution_log
                 (trigger_source, mlbam_player_id, player_name, action_taken, player_identity_id, note)
             VALUES
                 ('raw_statcast.pitch', v_mlbam_id, NEW.player_name, 'FOUND_EXISTING', v_identity_id, NULL);
         ELSE
-            -- Not found — insert pending placeholder
             BEGIN
                 INSERT INTO stg.player_identity
                     (mlbam_player_id, full_name, identity_confidence_score, identity_source)
@@ -192,42 +174,31 @@ BEGIN
 
             EXCEPTION
                 WHEN unique_violation THEN
-                    -- Race condition: another session inserted it between our
-                    -- SELECT and INSERT. Safe to skip — the other session
-                    -- already logged INSERTED_PENDING.
                     v_action := 'CONFLICT_SKIPPED';
                     v_identity_id := NULL;
             END;
 
             INSERT INTO stg.player_identity_resolution_log
-                (trigger_source, mlbam_player_id, player_name, action_taken, player_identity_id,
-                 note)
+                (trigger_source, mlbam_player_id, player_name, action_taken, player_identity_id, note)
             VALUES
                 ('raw_statcast.pitch', v_mlbam_id, NEW.player_name, v_action, v_identity_id,
                  CASE WHEN v_action = 'INSERTED_PENDING'
-                      THEN 'Pending enrichment: run pybaseball/Chadwick register lookup to fill key_retro, key_bbref, key_fangraphs'
+                      THEN 'Pending enrichment: run pybaseball/Chadwick register lookup to fill retro/bbref/fangraphs IDs'
                       ELSE 'Race condition — row inserted by concurrent session'
                  END);
         END IF;
     END LOOP;
 
-    RETURN NULL;  -- AFTER trigger; return value is ignored
+    RETURN NULL;
 END;
 $$;
 
 COMMENT ON FUNCTION stg.fn_auto_resolve_statcast_player() IS
-    'AFTER INSERT trigger function on raw_statcast.pitch. '
-    'For each new batter/pitcher MLBAM ID, checks stg.player_identity. '
-    'If absent, inserts a PENDING placeholder row (confidence_score=0, source=auto:statcast). '
-    'Logs every action to stg.player_identity_resolution_log. '
-    'Non-blocking: the statcast row is committed regardless of bridge state. '
-    'Downstream enrichment job should poll for rows WHERE identity_confidence_score = 0 '
-    'AND identity_source = ''auto:statcast'' and fill in retro/bbref/fangraphs IDs.';
+    'AFTER INSERT trigger on raw_statcast.pitch. For each new batter/pitcher MLBAM ID, '
+    'checks stg.player_identity and inserts a confidence=0 placeholder if absent. '
+    'Non-blocking: the Statcast row always commits. '
+    'Downstream enrichment polls stg.v_players_pending_enrichment.';
 
-
--- Attach the trigger to raw_statcast.pitch
--- AFTER INSERT so the Statcast row always commits first
--- FOR EACH ROW so we have access to NEW.batter / NEW.pitcher
 CREATE OR REPLACE TRIGGER trg_statcast_pitch_player_resolve
     AFTER INSERT ON raw_statcast.pitch
     FOR EACH ROW
@@ -235,16 +206,19 @@ CREATE OR REPLACE TRIGGER trg_statcast_pitch_player_resolve
 
 COMMENT ON TRIGGER trg_statcast_pitch_player_resolve ON raw_statcast.pitch IS
     'Fires after every Statcast pitch insert. Ensures batter and pitcher MLBAM IDs '
-    'are immediately visible in stg.player_identity as pending placeholders, '
-    'ready for downstream enrichment to complete the cross-source bridge.';
+    'are immediately visible in stg.player_identity as pending placeholders.';
 
 
 -- ---------------------------------------------------------------------------
--- PART F: Enrichment helper view
+-- PART F: Enrichment views
 --
--- Convenience view for the enrichment job to find all players that arrived
--- via auto-resolution and still need their cross-source IDs populated.
+-- Three distinct work queues for the enrichment pipeline:
+--   1. v_players_pending_enrichment    — auto-inserted placeholders, confidence=0
+--   2. v_players_needing_manual_review — low confidence after enrichment attempts
+--   3. v_live_players_pending_historical_ids — modern players missing retro/bbref
 -- ---------------------------------------------------------------------------
+
+-- Queue 1: auto-inserted placeholders that have never been touched
 CREATE OR REPLACE VIEW stg.v_players_pending_enrichment AS
 SELECT
     pi.player_identity_id,
@@ -269,9 +243,75 @@ GROUP BY
 ORDER BY times_seen_in_statcast DESC, first_seen_at;
 
 COMMENT ON VIEW stg.v_players_pending_enrichment IS
-    'All auto-inserted player identity placeholders that still need cross-source ID enrichment. '
-    'Shows how many times each player has appeared in raw_statcast data since auto-insertion. '
-    'Feed this view to the pybaseball/Chadwick enrichment job: '
+    'Auto-inserted player identity placeholders still needing cross-source ID enrichment. '
+    'Feed to the pybaseball/Chadwick enrichment job. '
     'SELECT mlbam_player_id, full_name FROM stg.v_players_pending_enrichment LIMIT 500;';
+
+
+-- Queue 2: players where automated enrichment has run but confidence is still low
+--          These need a human to manually verify and correct IDs.
+CREATE OR REPLACE VIEW stg.v_players_needing_manual_review AS
+SELECT
+    pi.player_identity_id,
+    pi.mlbam_player_id,
+    pi.full_name,
+    pi.identity_confidence_score,
+    pi.identity_source,
+    pi.retrosheet_player_id,
+    pi.bbref_player_id,
+    pi.fangraphs_player_id,
+    pi.lahman_player_id,
+    -- Flag which IDs are still missing
+    (pi.retrosheet_player_id IS NULL) AS missing_retro,
+    (pi.bbref_player_id      IS NULL) AS missing_bbref,
+    (pi.fangraphs_player_id  IS NULL) AS missing_fangraphs,
+    (pi.lahman_player_id     IS NULL) AS missing_lahman,
+    pi.updated_at                     AS last_enrichment_attempt,
+    pi.created_at
+FROM stg.player_identity pi
+WHERE pi.identity_confidence_score > 0       -- enrichment was attempted
+  AND pi.identity_confidence_score < 0.60    -- but confidence too low to trust
+ORDER BY pi.identity_confidence_score ASC, pi.created_at;
+
+COMMENT ON VIEW stg.v_players_needing_manual_review IS
+    'Players where automated enrichment ran but confidence score is below 0.60. '
+    'These require human verification. Check Chadwick register, Baseball Reference, '
+    'or MLB StatsAPI xref endpoint to confirm/correct the IDs. '
+    'Update via stg.update_player_identity() procedure to preserve audit trail.';
+
+
+-- Queue 3: live/active players who have an MLBAM ID from real-time feeds
+--          but are missing historical source IDs (retro/bbref) because
+--          those external registers have not yet published the crosswalk.
+--          Expected for rookies and players added mid-season.
+CREATE OR REPLACE VIEW stg.v_live_players_pending_historical_ids AS
+SELECT
+    pi.player_identity_id,
+    pi.mlbam_player_id,
+    pi.full_name,
+    pi.identity_confidence_score,
+    -- Which historical IDs are still outstanding
+    (pi.retrosheet_player_id IS NULL) AS awaiting_retro_id,
+    (pi.bbref_player_id      IS NULL) AS awaiting_bbref_id,
+    (pi.lahman_player_id     IS NULL) AS awaiting_lahman_id,
+    pi.fangraphs_player_id,           -- FG usually publishes faster than retro/bbref
+    pi.created_at                     AS first_seen_at,
+    pi.updated_at                     AS last_updated_at
+FROM stg.player_identity pi
+WHERE pi.mlbam_player_id IS NOT NULL
+  AND pi.identity_confidence_score >= 0.60   -- enrichment succeeded for modern IDs
+  AND (
+      pi.retrosheet_player_id IS NULL
+   OR pi.bbref_player_id      IS NULL
+   OR pi.lahman_player_id     IS NULL
+  )
+ORDER BY pi.created_at DESC;
+
+COMMENT ON VIEW stg.v_live_players_pending_historical_ids IS
+    'Active players with a valid MLBAM ID who are still awaiting historical register IDs. '
+    'This is normal for rookies and recent call-ups. '
+    'Re-run Chadwick register seed after each weekly Chadwick update to fill these in. '
+    'The weekly Chadwick refresh job should poll this view to prioritize lookups.';
+
 
 COMMIT;

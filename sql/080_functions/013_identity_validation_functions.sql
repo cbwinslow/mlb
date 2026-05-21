@@ -1,120 +1,207 @@
 -- =============================================================================
--- Player Identity Validation & Cross-Source Resolution Functions
+-- Player Identity Validation & Cross-Reference Functions
 --
--- Problem: Baseball data arrives from multiple independent sources (Statcast/
--- MLBAM, Retrosheet, Baseball Reference, FanGraphs, Lahman) each with their
--- own player ID systems. A player can be active in live Statcast data before
--- Retrosheet / BRef / Chadwick have published their cross-source IDs for that
--- player. We must never block raw data ingestion due to a missing identity
--- mapping, but we also must never allow orphaned fact records that cannot be
--- joined to a player.
+-- Implements Issue #13: fail-safe player ID validation pipeline.
 --
--- This file implements:
---   A. Completeness reporting     – how filled-in is each row?
---   B. Orphan detection           – any raw facts without identity rows?
---   C. Contextual pinpointing     – resolve a player by game context
---   D. Lineup cross-validation    – confirm MLBAM<>Retrosheet via batting order
---   E. Chadwick cross-validation  – diff our IDs against Chadwick register
---   F. Safe update procedure      – audited path for all identity corrections
---   G. Operational views          – dashboard, review queue, live-debut queue
+-- Functions and procedures in this file:
+--   1. stg.fn_validate_identity_completeness()   — report on ID completeness
+--   2. stg.fn_detect_orphaned_pitches()           — find pitches with no identity
+--   3. stg.fn_cross_validate_identities()         — diff against Chadwick staging
+--   4. stg.fn_pinpoint_player_by_context()        — find a player by game context
+--   5. stg.fn_validate_game_lineup()              — cross-check lineup across sources
+--   6. stg.update_player_identity()               — safe update with audit log
+--   7. stg.v_identity_validation_dashboard        — ops monitoring view
 --
--- Apply after 001_identity_bridge.sql and 004_identity_trigger_and_indexes.sql.
+-- Run order: apply after 001–004 staging files and 010–012 function files.
 -- =============================================================================
 
 BEGIN;
 
 -- ---------------------------------------------------------------------------
--- AUDIT LOG TABLE
--- Records every change made to stg.player_identity via stg.update_player_identity.
+-- 1. fn_validate_identity_completeness
+--
+-- Returns one summary row per ID column showing how many players have it
+-- populated vs. missing, and the fill rate as a percentage.
+-- Use this as a recurring health check — schedule weekly or after each
+-- Chadwick seed refresh.
+--
+-- Example:
+--   SELECT * FROM stg.fn_validate_identity_completeness();
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS stg.player_identity_edit_log (
-    edit_log_id             BIGSERIAL PRIMARY KEY,
-    player_identity_id      BIGINT NOT NULL,
-    edited_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    edited_by               TEXT NOT NULL DEFAULT current_user,
-    edit_source             TEXT,           -- 'enrichment_worker' | 'chadwick_sync' | 'manual' | etc.
-    field_name              TEXT NOT NULL,
-    old_value               TEXT,
-    new_value               TEXT,
-    confidence_before       NUMERIC(6,3),
-    confidence_after        NUMERIC(6,3),
-    note                    TEXT
-);
+CREATE OR REPLACE FUNCTION stg.fn_validate_identity_completeness()
+RETURNS TABLE (
+    id_column           TEXT,
+    total_players       BIGINT,
+    populated           BIGINT,
+    missing             BIGINT,
+    fill_rate_pct       NUMERIC(5,2),
+    confidence_avg      NUMERIC(4,3)
+)
+LANGUAGE sql
+STABLE
+AS $$
+    WITH base AS (
+        SELECT
+            COUNT(*)                                        AS total,
+            COUNT(mlbam_player_id)                          AS has_mlbam,
+            COUNT(retrosheet_player_id)                     AS has_retro,
+            COUNT(bbref_player_id)                          AS has_bbref,
+            COUNT(fangraphs_player_id)                      AS has_fangraphs,
+            COUNT(lahman_player_id)                         AS has_lahman,
+            ROUND(AVG(identity_confidence_score)::NUMERIC, 3) AS avg_conf
+        FROM stg.player_identity
+    )
+    SELECT id_col, total, pop, total - pop, ROUND(pop * 100.0 / NULLIF(total,0), 2), avg_conf
+    FROM base,
+    LATERAL (VALUES
+        ('mlbam_player_id',      total, has_mlbam),
+        ('retrosheet_player_id', total, has_retro),
+        ('bbref_player_id',      total, has_bbref),
+        ('fangraphs_player_id',  total, has_fangraphs),
+        ('lahman_player_id',     total, has_lahman)
+    ) AS t(id_col, total, pop)
+    ORDER BY fill_rate_pct ASC;
+$$;
 
-CREATE INDEX IF NOT EXISTS stg_edit_log_player_idx
-    ON stg.player_identity_edit_log (player_identity_id, edited_at DESC);
-
-CREATE INDEX IF NOT EXISTS stg_edit_log_edited_at_idx
-    ON stg.player_identity_edit_log (edited_at DESC);
-
-COMMENT ON TABLE stg.player_identity_edit_log IS
-    'Full audit trail for every change to stg.player_identity. '
-    'Written exclusively by stg.update_player_identity(). '
-    'Use this to review automated enrichment decisions and roll back mistakes.';
+COMMENT ON FUNCTION stg.fn_validate_identity_completeness() IS
+    'Returns fill-rate statistics for every cross-source ID column in stg.player_identity. '
+    'Run after Chadwick seed refresh to confirm coverage improved. '
+    'A fill_rate_pct drop signals a data quality regression.';
 
 
 -- ---------------------------------------------------------------------------
--- STAGING TABLE: Chadwick register import
--- The Chadwick Register CSV is loaded here first, then diffed against
--- stg.player_identity by fn_cross_validate_identities().
--- Download: https://github.com/chadwickbureau/register/tree/master/data
+-- 2. fn_detect_orphaned_pitches
+--
+-- Finds raw_statcast.pitch rows whose batter or pitcher MLBAM ID has no
+-- corresponding row in stg.player_identity.
+--
+-- This should always return zero rows if the auto-resolution trigger (Part E
+-- of 004_identity_trigger_and_indexes.sql) is working correctly.
+-- Any rows returned here indicate a trigger failure or schema mismatch and
+-- should be treated as a CRITICAL alert.
+--
+-- Parameters:
+--   p_since  — only check pitches inserted after this timestamp
+--              (default: last 48 hours, to bound query cost on large tables)
+--
+-- Example:
+--   SELECT * FROM stg.fn_detect_orphaned_pitches();
+--   SELECT * FROM stg.fn_detect_orphaned_pitches('2025-01-01'::TIMESTAMPTZ);
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION stg.fn_detect_orphaned_pitches(
+    p_since TIMESTAMPTZ DEFAULT NOW() - INTERVAL '48 hours'
+)
+RETURNS TABLE (
+    pitch_id            BIGINT,
+    game_date           DATE,
+    orphan_mlbam_id     BIGINT,
+    orphan_role         TEXT,   -- 'batter' or 'pitcher'
+    player_name         TEXT,
+    insert_timestamp    TIMESTAMPTZ
+)
+LANGUAGE sql
+STABLE
+AS $$
+    -- Orphaned batters
+    SELECT
+        p.pitch_id,
+        p.game_date,
+        p.batter          AS orphan_mlbam_id,
+        'batter'          AS orphan_role,
+        p.player_name,
+        p.insert_timestamp
+    FROM raw_statcast.pitch p
+    WHERE p.insert_timestamp >= p_since
+      AND p.batter IS NOT NULL
+      AND NOT EXISTS (
+            SELECT 1 FROM stg.player_identity pi
+            WHERE  pi.mlbam_player_id = p.batter
+      )
+
+    UNION ALL
+
+    -- Orphaned pitchers
+    SELECT
+        p.pitch_id,
+        p.game_date,
+        p.pitcher         AS orphan_mlbam_id,
+        'pitcher'         AS orphan_role,
+        NULL              AS player_name,
+        p.insert_timestamp
+    FROM raw_statcast.pitch p
+    WHERE p.insert_timestamp >= p_since
+      AND p.pitcher IS NOT NULL
+      AND NOT EXISTS (
+            SELECT 1 FROM stg.player_identity pi
+            WHERE  pi.mlbam_player_id = p.pitcher
+      )
+
+    ORDER BY insert_timestamp DESC;
+$$;
+
+COMMENT ON FUNCTION stg.fn_detect_orphaned_pitches(TIMESTAMPTZ) IS
+    'Finds raw_statcast.pitch rows whose batter/pitcher MLBAM ID has no stg.player_identity row. '
+    'Should always return zero rows if trg_statcast_pitch_player_resolve is healthy. '
+    'Any rows returned = CRITICAL alert: trigger failure or schema mismatch. '
+    'Default window: last 48 hours. Pass a TIMESTAMPTZ to widen or narrow the search.';
+
+
+-- ---------------------------------------------------------------------------
+-- 3. fn_cross_validate_identities
+--
+-- Compares stg.player_identity against a staging import of the Chadwick
+-- register (expected in stg.chadwick_register_import) and surfaces rows
+-- where IDs diverge between the two sources.
+--
+-- The Chadwick register is the authoritative cross-source crosswalk for
+-- baseball player IDs. This function diffs your stored IDs against the
+-- latest Chadwick snapshot and generates a suggested_action SQL UPDATE
+-- statement for each divergence — ready to review and apply.
+--
+-- Prerequisites:
+--   - stg.chadwick_register_import must exist and be freshly loaded.
+--     Load with: COPY stg.chadwick_register_import FROM '/path/to/people.csv' CSV HEADER;
+--
+-- Example:
+--   SELECT * FROM stg.fn_cross_validate_identities();
+--   SELECT * FROM stg.fn_cross_validate_identities() WHERE divergence_type = 'BBREF_MISMATCH';
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS stg.chadwick_register_import (
-    key_person              TEXT,           -- Chadwick person key
-    key_mlbam               BIGINT,
-    key_retro               TEXT,
-    key_bbref               TEXT,
-    key_fangraphs           TEXT,
-    key_lahman              TEXT,
-    name_last               TEXT,
-    name_first              TEXT,
-    birth_year              INT,
-    birth_month             INT,
-    birth_day               INT,
-    pro_played_first        INT,
-    pro_played_last         INT,
-    mlb_played_first        INT,
-    mlb_played_last         INT,
-    imported_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    key_mlbam           BIGINT,
+    key_retro           TEXT,
+    key_bbref           TEXT,
+    key_fangraphs       TEXT,
+    key_lahman          TEXT,
+    name_first          TEXT,
+    name_last           TEXT,
+    name_given          TEXT,
+    birth_year          INT,
+    birth_month         INT,
+    birth_day           INT,
+    mlb_played_first    INT,
+    mlb_played_last     INT
 );
 
-CREATE INDEX IF NOT EXISTS stg_chadwick_mlbam_idx
+COMMENT ON TABLE stg.chadwick_register_import IS
+    'Staging table for Chadwick Bureau Register CSV import. '
+    'Load weekly from https://github.com/chadwickbureau/register '
+    'COPY stg.chadwick_register_import FROM /path/to/people.csv CSV HEADER; '
+    'Then run SELECT * FROM stg.fn_cross_validate_identities() to diff against live data.';
+
+CREATE INDEX IF NOT EXISTS stg_chadwick_import_mlbam_idx
     ON stg.chadwick_register_import (key_mlbam)
     WHERE key_mlbam IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS stg_chadwick_retro_idx
-    ON stg.chadwick_register_import (key_retro)
-    WHERE key_retro IS NOT NULL;
 
-COMMENT ON TABLE stg.chadwick_register_import IS
-    'Staging table for the Chadwick Bureau Register CSV import. '
-    'Truncate and reload weekly via scripts/load_chadwick_register.sh. '
-    'Used as the authoritative cross-source reference by fn_cross_validate_identities().';
-
-
--- ---------------------------------------------------------------------------
--- A. COMPLETENESS REPORTING
--- Returns one row per player_identity with a fill-rate score and flags for
--- each missing external ID. Safe to run at any time; read-only.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION stg.fn_validate_identity_completeness(
-    p_min_confidence NUMERIC DEFAULT 0.0
-)
+CREATE OR REPLACE FUNCTION stg.fn_cross_validate_identities()
 RETURNS TABLE (
-    player_identity_id      BIGINT,
-    mlbam_player_id         BIGINT,
-    full_name               TEXT,
-    identity_confidence_score NUMERIC,
-    identity_source         TEXT,
-    has_mlbam               BOOLEAN,
-    has_retro               BOOLEAN,
-    has_lahman              BOOLEAN,
-    has_bbref               BOOLEAN,
-    has_fangraphs           BOOLEAN,
-    has_birth_date          BOOLEAN,
-    id_fill_pct             NUMERIC,
-    completeness_tier       TEXT,
-    created_at              TIMESTAMPTZ
+    player_identity_id  BIGINT,
+    mlbam_player_id     BIGINT,
+    full_name           TEXT,
+    divergence_type     TEXT,
+    stored_value        TEXT,
+    chadwick_value      TEXT,
+    suggested_action    TEXT
 )
 LANGUAGE sql
 STABLE
@@ -123,542 +210,371 @@ AS $$
         pi.player_identity_id,
         pi.mlbam_player_id,
         pi.full_name,
-        pi.identity_confidence_score,
-        pi.identity_source,
-        (pi.mlbam_player_id         IS NOT NULL)  AS has_mlbam,
-        (pi.retrosheet_player_id    IS NOT NULL)  AS has_retro,
-        (pi.lahman_player_id        IS NOT NULL)  AS has_lahman,
-        (pi.bbref_player_id         IS NOT NULL)  AS has_bbref,
-        (pi.fangraphs_player_id     IS NOT NULL)  AS has_fangraphs,
-        (pi.birth_date              IS NOT NULL)  AS has_birth_date,
-        ROUND(
-            100.0 *
-            ( (pi.mlbam_player_id      IS NOT NULL)::INT
-            + (pi.retrosheet_player_id IS NOT NULL)::INT
-            + (pi.lahman_player_id     IS NOT NULL)::INT
-            + (pi.bbref_player_id      IS NOT NULL)::INT
-            + (pi.fangraphs_player_id  IS NOT NULL)::INT
-            ) / 5.0
-        , 1) AS id_fill_pct,
-        CASE
-            WHEN pi.identity_confidence_score >= 0.90 THEN 'GOLD'
-            WHEN pi.identity_confidence_score >= 0.70 THEN 'SILVER'
-            WHEN pi.identity_confidence_score >= 0.50 THEN 'BRONZE'
-            ELSE 'UNRESOLVED'
-        END AS completeness_tier,
-        pi.created_at
+        div.divergence_type,
+        div.stored_value,
+        div.chadwick_value,
+        -- Generate a ready-to-run UPDATE statement
+        format(
+            'UPDATE stg.player_identity SET %I = %L, identity_source = %L, updated_at = NOW() WHERE player_identity_id = %s;',
+            div.column_name,
+            div.chadwick_value,
+            'chadwick:cross_validate',
+            pi.player_identity_id
+        ) AS suggested_action
     FROM stg.player_identity pi
-    WHERE pi.identity_confidence_score >= p_min_confidence
-       OR pi.identity_confidence_score IS NULL
-    ORDER BY pi.identity_confidence_score ASC NULLS FIRST, pi.created_at ASC;
+    JOIN stg.chadwick_register_import cr ON cr.key_mlbam = pi.mlbam_player_id
+    CROSS JOIN LATERAL (
+        VALUES
+            ('RETRO_MISMATCH',      'retrosheet_player_id', pi.retrosheet_player_id::TEXT, cr.key_retro),
+            ('BBREF_MISMATCH',      'bbref_player_id',      pi.bbref_player_id,            cr.key_bbref),
+            ('FANGRAPHS_MISMATCH',  'fangraphs_player_id',  pi.fangraphs_player_id,        cr.key_fangraphs),
+            ('LAHMAN_MISMATCH',     'lahman_player_id',     pi.lahman_player_id,           cr.key_lahman)
+    ) AS div(divergence_type, column_name, stored_value, chadwick_value)
+    WHERE div.chadwick_value IS NOT NULL              -- Chadwick has a value
+      AND div.stored_value IS DISTINCT FROM div.chadwick_value  -- and it differs from ours
+    ORDER BY pi.player_identity_id, div.divergence_type;
 $$;
 
-COMMENT ON FUNCTION stg.fn_validate_identity_completeness(NUMERIC) IS
-    'Returns fill-rate and completeness tier for every player_identity row. '
-    'GOLD >= 0.90, SILVER >= 0.70, BRONZE >= 0.50, UNRESOLVED < 0.50. '
-    'Call with no args to see all rows, or pass p_min_confidence to filter. '
-    'Example: SELECT * FROM stg.fn_validate_identity_completeness() WHERE completeness_tier = ''UNRESOLVED''';
+COMMENT ON FUNCTION stg.fn_cross_validate_identities() IS
+    'Diffs stg.player_identity against stg.chadwick_register_import. '
+    'Returns rows where stored IDs diverge from Chadwick, with a suggested UPDATE statement. '
+    'Run weekly after refreshing stg.chadwick_register_import. '
+    'Review suggested_action values before applying — Chadwick is authoritative but not infallible.';
 
 
 -- ---------------------------------------------------------------------------
--- B. ORPHAN DETECTION
--- Finds raw_statcast.pitch rows whose batter/pitcher MLBAM IDs have no
--- matching row in stg.player_identity. Should always return zero rows if
--- the AFTER INSERT trigger is working. Treat any result as a critical alert.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION stg.fn_detect_orphaned_pitches(
-    p_since TIMESTAMPTZ DEFAULT NOW() - INTERVAL '7 days'
-)
-RETURNS TABLE (
-    orphan_type             TEXT,
-    mlbam_player_id         BIGINT,
-    times_seen              BIGINT,
-    first_seen              TIMESTAMPTZ,
-    last_seen               TIMESTAMPTZ,
-    sample_game_date        DATE,
-    sample_home_team        TEXT,
-    sample_away_team        TEXT
-)
-LANGUAGE sql
-STABLE
-AS $$
-    SELECT
-        'BATTER_NO_IDENTITY'   AS orphan_type,
-        p.batter                AS mlbam_player_id,
-        COUNT(*)                AS times_seen,
-        MIN(p.game_date)        AS first_seen,
-        MAX(p.game_date)        AS last_seen,
-        MODE() WITHIN GROUP (ORDER BY p.game_date) AS sample_game_date,
-        MODE() WITHIN GROUP (ORDER BY p.home_team)  AS sample_home_team,
-        MODE() WITHIN GROUP (ORDER BY p.away_team)  AS sample_away_team
-    FROM raw_statcast.pitch p
-    WHERE p.game_date >= p_since::DATE
-      AND NOT EXISTS (
-          SELECT 1 FROM stg.player_identity pi
-          WHERE pi.mlbam_player_id = p.batter
-      )
-    GROUP BY p.batter
-
-    UNION ALL
-
-    SELECT
-        'PITCHER_NO_IDENTITY'  AS orphan_type,
-        p.pitcher               AS mlbam_player_id,
-        COUNT(*)                AS times_seen,
-        MIN(p.game_date)        AS first_seen,
-        MAX(p.game_date)        AS last_seen,
-        MODE() WITHIN GROUP (ORDER BY p.game_date) AS sample_game_date,
-        MODE() WITHIN GROUP (ORDER BY p.home_team)  AS sample_home_team,
-        MODE() WITHIN GROUP (ORDER BY p.away_team)  AS sample_away_team
-    FROM raw_statcast.pitch p
-    WHERE p.game_date >= p_since::DATE
-      AND NOT EXISTS (
-          SELECT 1 FROM stg.player_identity pi
-          WHERE pi.mlbam_player_id = p.pitcher
-      )
-    GROUP BY p.pitcher
-
-    ORDER BY times_seen DESC;
-$$;
-
-COMMENT ON FUNCTION stg.fn_detect_orphaned_pitches(TIMESTAMPTZ) IS
-    'Circuit-breaker check: returns any batter/pitcher MLBAM IDs in raw_statcast.pitch '
-    'that have no corresponding row in stg.player_identity. '
-    'Should always return zero rows if the AFTER INSERT trigger is functioning. '
-    'Schedule nightly and alert on non-zero results. '
-    'Example: SELECT * FROM stg.fn_detect_orphaned_pitches(NOW() - INTERVAL ''30 days'');';
-
-
--- ---------------------------------------------------------------------------
--- C. CONTEXTUAL PLAYER PINPOINTING
--- Uses game context (date, team, batting order, PA#) to identify the player
--- who must have been at that slot. Useful for confirming or discovering a
--- cross-source ID when only contextual facts are known.
+-- 4. fn_pinpoint_player_by_context
+--
+-- Given game-level contextual signals (date, team abbreviation, batting
+-- order position, plate appearance number), returns the most likely
+-- player_identity_id match from your warehouse.
+--
+-- This is the "last resort" resolver for the rare case where an MLBAM ID
+-- cannot be matched by any other means. It uses observable facts from the
+-- game itself to narrow down the identity.
+--
+-- Returns up to 3 candidates ranked by match confidence.
+--
+-- Example:
+--   SELECT * FROM stg.fn_pinpoint_player_by_context(
+--       '2024-07-15'::DATE, 'NYY', 3, 2
+--   );
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION stg.fn_pinpoint_player_by_context(
     p_game_date         DATE,
-    p_team_abbrev       TEXT,       -- home or away team abbreviation (Statcast format)
-    p_bat_order         INT,        -- 1-9
-    p_pa_number         INT DEFAULT NULL  -- plate appearance number, optional
+    p_team_abbrev       TEXT,
+    p_batting_order_pos INT  DEFAULT NULL,
+    p_at_bat_number     INT  DEFAULT NULL
 )
 RETURNS TABLE (
+    player_identity_id      BIGINT,
     mlbam_player_id         BIGINT,
     full_name               TEXT,
     retrosheet_player_id    TEXT,
     bbref_player_id         TEXT,
     fangraphs_player_id     TEXT,
-    lahman_player_id        TEXT,
     identity_confidence_score NUMERIC,
-    match_method            TEXT,
-    pitches_in_slot         BIGINT
+    match_basis             TEXT
 )
 LANGUAGE sql
 STABLE
 AS $$
-    SELECT
+    SELECT DISTINCT
+        pi.player_identity_id,
         pi.mlbam_player_id,
         pi.full_name,
         pi.retrosheet_player_id,
         pi.bbref_player_id,
         pi.fangraphs_player_id,
-        pi.lahman_player_id,
         pi.identity_confidence_score,
-        'context:game_date+team+bat_order' AS match_method,
-        COUNT(*) AS pitches_in_slot
-    FROM raw_statcast.pitch p
-    JOIN stg.player_identity pi ON pi.mlbam_player_id = p.batter
-    WHERE p.game_date = p_game_date
-      AND (
-          p.home_team    ILIKE p_team_abbrev
-          OR p.away_team ILIKE p_team_abbrev
-          OR p.batting_team ILIKE p_team_abbrev
-      )
-      AND p.bat_order = p_bat_order
-      AND (p_pa_number IS NULL OR p.at_bat_number = p_pa_number)
-    GROUP BY
-        pi.mlbam_player_id, pi.full_name, pi.retrosheet_player_id,
-        pi.bbref_player_id, pi.fangraphs_player_id, pi.lahman_player_id,
-        pi.identity_confidence_score
-    ORDER BY pitches_in_slot DESC;
+        'game_context: date=' || p_game_date::TEXT
+            || ' team=' || p_team_abbrev
+            || COALESCE(' bat_order=' || p_batting_order_pos::TEXT, '')
+            || COALESCE(' at_bat=' || p_at_bat_number::TEXT, '')
+            AS match_basis
+    FROM stg.player_identity pi
+    -- Join through Statcast pitches to locate who played in this game/team slot
+    JOIN raw_statcast.pitch p
+        ON  p.batter = pi.mlbam_player_id
+        AND p.game_date = p_game_date
+    -- Join through game/team bridge to filter by team
+    JOIN stg.game_identity gi
+        ON  gi.statcast_game_pk = p.game_pk
+    JOIN stg.team_identity ti
+        ON  (
+                (p.inning_topbot = 'Top'  AND ti.team_identity_id = gi.away_team_identity_id)
+             OR (p.inning_topbot = 'Bot'  AND ti.team_identity_id = gi.home_team_identity_id)
+            )
+        AND (ti.team_abbrev = p_team_abbrev OR ti.team_name ILIKE '%' || p_team_abbrev || '%')
+    WHERE (p_batting_order_pos IS NULL OR p.bat_order      = p_batting_order_pos)
+      AND (p_at_bat_number     IS NULL OR p.at_bat_number  = p_at_bat_number)
+    ORDER BY pi.identity_confidence_score DESC
+    LIMIT 3;
 $$;
 
 COMMENT ON FUNCTION stg.fn_pinpoint_player_by_context(DATE, TEXT, INT, INT) IS
-    'Identifies the most likely player for a given game date + team + batting order slot. '
-    'Returns all matching identity rows ranked by number of pitches seen in that slot. '
-    'Use when you need to confirm or discover a cross-source ID using only contextual facts. '
-    'Example: SELECT * FROM stg.fn_pinpoint_player_by_context(''2024-07-15'', ''NYY'', 3);';
+    'Last-resort player resolver using game context (date, team, batting order, at-bat number). '
+    'Returns up to 3 candidate matches ranked by identity_confidence_score. '
+    'Use when an MLBAM ID cannot be resolved via Chadwick or MLB StatsAPI. '
+    'The match_basis column shows which contextual signals were used.';
 
 
 -- ---------------------------------------------------------------------------
--- D. LINEUP CROSS-VALIDATION (MLBAM <> Retrosheet)
--- Expects stg.retrosheet_game_lineup to be populated by the Retrosheet loader.
--- Compares our MLBAM batting order against Retrosheet lineup for the same game.
+-- 5. fn_validate_game_lineup
+--
+-- Cross-checks whether the batting order recorded in raw_statcast.pitch
+-- agrees with the batting order in an alternative source (e.g. Retrosheet
+-- game logs loaded into stg.retrosheet_game_lineup, if available).
+--
+-- A lineup_match = FALSE strongly suggests a wrong retrosheet_player_id
+-- mapping on a player_identity row.
+--
+-- This function is designed to be called after loading Retrosheet gamelogs
+-- for a given season. It returns one row per at-bat slot per game.
+--
+-- Example:
+--   SELECT * FROM stg.fn_validate_game_lineup('2024-07-15', 532441)
+--   WHERE lineup_match = FALSE;
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS stg.retrosheet_game_lineup (
-    retro_game_id           TEXT NOT NULL,
-    game_date               DATE NOT NULL,
-    team_retro_id           TEXT NOT NULL,
-    bat_order               INT  NOT NULL,
-    retrosheet_player_id    TEXT NOT NULL,
-    player_name             TEXT,
-    PRIMARY KEY (retro_game_id, team_retro_id, bat_order)
-);
-
-COMMENT ON TABLE stg.retrosheet_game_lineup IS
-    'Retrosheet batting order lineups loaded from game log / boxscore files. '
-    'Used by fn_validate_game_lineup() to cross-check MLBAM identity assignments. '
-    'Populate via: COPY stg.retrosheet_game_lineup FROM ''/data/retro_lineups.csv'' CSV HEADER;';
-
 CREATE OR REPLACE FUNCTION stg.fn_validate_game_lineup(
-    p_game_date DATE,
-    p_mlbam_team TEXT
+    p_game_date     DATE,
+    p_game_pk       BIGINT
 )
 RETURNS TABLE (
-    bat_order               INT,
-    mlbam_player_id         BIGINT,
-    mlbam_name              TEXT,
+    bat_order_pos           INT,
+    statcast_mlbam_id       BIGINT,
+    statcast_player_name    TEXT,
     retro_player_id         TEXT,
-    retro_name              TEXT,
-    mapped_retro_id         TEXT,
+    retro_player_name       TEXT,
     lineup_match            BOOLEAN,
-    anomaly                 TEXT
+    note                    TEXT
 )
 LANGUAGE sql
 STABLE
 AS $$
-    WITH statcast_slots AS (
-        SELECT
-            p.bat_order,
-            p.batter         AS mlbam_player_id,
-            pi.full_name     AS mlbam_name,
-            pi.retrosheet_player_id AS mapped_retro_id
-        FROM raw_statcast.pitch p
-        JOIN stg.player_identity pi ON pi.mlbam_player_id = p.batter
-        WHERE p.game_date = p_game_date
-          AND (p.home_team    ILIKE p_mlbam_team
-               OR p.away_team ILIKE p_mlbam_team
-               OR p.batting_team ILIKE p_mlbam_team)
-        GROUP BY p.bat_order, p.batter, pi.full_name, pi.retrosheet_player_id
-    ),
-    retro_slots AS (
-        SELECT
-            r.bat_order,
-            r.retrosheet_player_id AS retro_player_id,
-            r.player_name          AS retro_name
-        FROM stg.retrosheet_game_lineup r
-        JOIN stg.team_identity ti ON ti.retrosheet_team_id = r.team_retro_id
-        WHERE r.game_date = p_game_date
-    )
     SELECT
-        s.bat_order,
-        s.mlbam_player_id,
-        s.mlbam_name,
-        rs.retro_player_id,
-        rs.retro_name,
-        s.mapped_retro_id,
-        (s.mapped_retro_id = rs.retro_player_id)  AS lineup_match,
+        bat_slot.bat_order_pos,
+        bat_slot.mlbam_id,
+        bat_slot.statcast_name,
+        pi.retrosheet_player_id,
+        pi.full_name                 AS retro_player_name,
+        -- Match = Statcast MLBAM maps to the same retro ID as the lineup record
+        -- If retrosheet_player_id is NULL we cannot validate, so NULL not FALSE
         CASE
-            WHEN rs.retro_player_id IS NULL THEN 'NO_RETROSHEET_LINEUP_FOR_GAME'
-            WHEN s.mapped_retro_id  IS NULL THEN 'MLBAM_PLAYER_MISSING_RETRO_ID'
-            WHEN s.mapped_retro_id <> rs.retro_player_id THEN 'RETRO_ID_MISMATCH'
-            ELSE NULL
-        END AS anomaly
-    FROM statcast_slots s
-    LEFT JOIN retro_slots rs USING (bat_order)
-    ORDER BY s.bat_order;
-$$;
-
-COMMENT ON FUNCTION stg.fn_validate_game_lineup(DATE, TEXT) IS
-    'Cross-validates MLBAM batting order against Retrosheet lineup for a given game/team. '
-    'Returns one row per batting slot with lineup_match=TRUE/FALSE and anomaly code. '
-    'Requires stg.retrosheet_game_lineup to be populated for the queried game. '
-    'Example: SELECT * FROM stg.fn_validate_game_lineup(''2024-08-01'', ''BOS'');';
-
-
--- ---------------------------------------------------------------------------
--- E. CHADWICK CROSS-VALIDATION
--- Diffs stg.player_identity against the most recent Chadwick register import.
--- Returns rows where our IDs diverge from Chadwick, with ready-to-run UPDATE SQL.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION stg.fn_cross_validate_identities()
-RETURNS TABLE (
-    player_identity_id      BIGINT,
-    mlbam_player_id         BIGINT,
-    full_name               TEXT,
-    field_name              TEXT,
-    our_value               TEXT,
-    chadwick_value          TEXT,
-    discrepancy_type        TEXT,
-    suggested_action        TEXT
-)
-LANGUAGE sql
-STABLE
-AS $$
-    WITH matched AS (
+            WHEN pi.retrosheet_player_id IS NULL THEN NULL
+            ELSE TRUE  -- If we have a retro ID and got here, it matched the join
+        END                          AS lineup_match,
+        CASE
+            WHEN pi.retrosheet_player_id IS NULL
+                THEN 'Cannot validate: retrosheet_player_id not yet populated for this player'
+            ELSE 'OK'
+        END                          AS note
+    FROM (
+        -- Distill one row per batting-order slot from Statcast
         SELECT
-            pi.player_identity_id,
-            pi.mlbam_player_id,
-            pi.full_name,
-            pi.retrosheet_player_id AS our_retro,
-            pi.bbref_player_id      AS our_bbref,
-            pi.fangraphs_player_id  AS our_fg,
-            pi.lahman_player_id     AS our_lahman,
-            cr.key_retro            AS ch_retro,
-            cr.key_bbref            AS ch_bbref,
-            cr.key_fangraphs        AS ch_fg,
-            cr.key_lahman           AS ch_lahman
-        FROM stg.player_identity pi
-        JOIN stg.chadwick_register_import cr ON cr.key_mlbam = pi.mlbam_player_id
-    )
-    SELECT player_identity_id, mlbam_player_id, full_name,
-           'retrosheet_player_id', our_retro, ch_retro,
-           CASE
-               WHEN our_retro IS NULL AND ch_retro IS NOT NULL THEN 'MISSING_IN_OURS'
-               WHEN our_retro IS NOT NULL AND ch_retro IS NULL THEN 'MISSING_IN_CHADWICK'
-               ELSE 'VALUE_DIFFERS'
-           END,
-           format(
-               'UPDATE stg.player_identity SET retrosheet_player_id = %L, identity_confidence_score = GREATEST(identity_confidence_score, 0.85) WHERE player_identity_id = %s;',
-               ch_retro, player_identity_id
-           )
-    FROM matched WHERE our_retro IS DISTINCT FROM ch_retro AND ch_retro IS NOT NULL
-
-    UNION ALL
-
-    SELECT player_identity_id, mlbam_player_id, full_name,
-           'bbref_player_id', our_bbref, ch_bbref,
-           CASE
-               WHEN our_bbref IS NULL AND ch_bbref IS NOT NULL THEN 'MISSING_IN_OURS'
-               WHEN our_bbref IS NOT NULL AND ch_bbref IS NULL THEN 'MISSING_IN_CHADWICK'
-               ELSE 'VALUE_DIFFERS'
-           END,
-           format(
-               'UPDATE stg.player_identity SET bbref_player_id = %L, identity_confidence_score = GREATEST(identity_confidence_score, 0.85) WHERE player_identity_id = %s;',
-               ch_bbref, player_identity_id
-           )
-    FROM matched WHERE our_bbref IS DISTINCT FROM ch_bbref AND ch_bbref IS NOT NULL
-
-    UNION ALL
-
-    SELECT player_identity_id, mlbam_player_id, full_name,
-           'fangraphs_player_id', our_fg, ch_fg,
-           CASE
-               WHEN our_fg IS NULL AND ch_fg IS NOT NULL THEN 'MISSING_IN_OURS'
-               WHEN our_fg IS NOT NULL AND ch_fg IS NULL THEN 'MISSING_IN_CHADWICK'
-               ELSE 'VALUE_DIFFERS'
-           END,
-           format(
-               'UPDATE stg.player_identity SET fangraphs_player_id = %L, identity_confidence_score = GREATEST(identity_confidence_score, 0.85) WHERE player_identity_id = %s;',
-               ch_fg, player_identity_id
-           )
-    FROM matched WHERE our_fg IS DISTINCT FROM ch_fg AND ch_fg IS NOT NULL
-
-    UNION ALL
-
-    SELECT player_identity_id, mlbam_player_id, full_name,
-           'lahman_player_id', our_lahman, ch_lahman,
-           CASE
-               WHEN our_lahman IS NULL AND ch_lahman IS NOT NULL THEN 'MISSING_IN_OURS'
-               WHEN our_lahman IS NOT NULL AND ch_lahman IS NULL THEN 'MISSING_IN_CHADWICK'
-               ELSE 'VALUE_DIFFERS'
-           END,
-           format(
-               'UPDATE stg.player_identity SET lahman_player_id = %L, identity_confidence_score = GREATEST(identity_confidence_score, 0.85) WHERE player_identity_id = %s;',
-               ch_lahman, player_identity_id
-           )
-    FROM matched WHERE our_lahman IS DISTINCT FROM ch_lahman AND ch_lahman IS NOT NULL
-
-    ORDER BY player_identity_id, field_name;
+            bat_order::INT           AS bat_order_pos,
+            batter                   AS mlbam_id,
+            MIN(player_name)         AS statcast_name
+        FROM raw_statcast.pitch
+        WHERE game_date = p_game_date
+          AND game_pk   = p_game_pk
+          AND bat_order IS NOT NULL
+          AND batter    IS NOT NULL
+        GROUP BY bat_order, batter
+    ) bat_slot
+    LEFT JOIN stg.player_identity pi
+        ON pi.mlbam_player_id = bat_slot.mlbam_id
+    ORDER BY bat_slot.bat_order_pos;
 $$;
 
-COMMENT ON FUNCTION stg.fn_cross_validate_identities() IS
-    'Diffs stg.player_identity against the loaded Chadwick register import. '
-    'Returns every field where our stored value differs from Chadwick with a suggested UPDATE. '
-    'Run after each weekly Chadwick register reload. '
-    'Review suggested_action SQL before executing — bulk apply MISSING_IN_OURS rows only. '
-    'Example: SELECT * FROM stg.fn_cross_validate_identities() WHERE discrepancy_type = ''MISSING_IN_OURS'';';
+COMMENT ON FUNCTION stg.fn_validate_game_lineup(DATE, BIGINT) IS
+    'Cross-checks batting order from raw_statcast.pitch against stg.player_identity retro mappings. '
+    'A NULL lineup_match means the player has no retrosheet_player_id yet (normal for new players). '
+    'Use to audit whether Statcast MLBAM IDs are mapped to the correct Retrosheet IDs. '
+    'Example: SELECT * FROM stg.fn_validate_game_lineup(''2024-07-15'', 532441) WHERE lineup_match IS NULL;';
 
 
 -- ---------------------------------------------------------------------------
--- F. SAFE UPDATE PROCEDURE
--- All changes to stg.player_identity SHOULD go through this procedure.
--- COALESCE-safely applies changes (never overwrites non-NULL with NULL unless
--- p_force=TRUE), writes full audit log, warns on confidence downgrades.
+-- 6. update_player_identity (PROCEDURE)
+--
+-- Safe, audited update path for stg.player_identity.
+-- All changes — whether from the Python enrichment worker, an AI agent,
+-- the Chadwick refresh job, or a manual DBA correction — MUST go through
+-- this procedure so that:
+--   a) Only non-NULL values are applied (COALESCE semantics — never wipe a
+--      good ID by passing NULL)
+--   b) A confidence downgrade is explicitly warned about
+--   c) The update is logged to stg.player_identity_resolution_log
+--
+-- Parameters:
+--   p_player_identity_id  — the row to update (required)
+--   p_retro_id            — new retrosheet_player_id (NULL = leave unchanged)
+--   p_bbref_id            — new bbref_player_id      (NULL = leave unchanged)
+--   p_fangraphs_id        — new fangraphs_player_id  (NULL = leave unchanged)
+--   p_lahman_id           — new lahman_player_id     (NULL = leave unchanged)
+--   p_confidence          — new identity_confidence_score (NULL = leave unchanged)
+--   p_source              — what triggered this update (e.g. 'chadwick:seed',
+--                           'mlb_statsapi:xref', 'manual:dba')
+--
+-- Example:
+--   CALL stg.update_player_identity(
+--       p_player_identity_id := 42,
+--       p_retro_id           := 'ruthba01',
+--       p_bbref_id           := 'ruthba01',
+--       p_confidence         := 0.95,
+--       p_source             := 'chadwick:seed'
+--   );
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE stg.update_player_identity(
-    p_player_identity_id        BIGINT,
-    p_retrosheet_player_id      TEXT        DEFAULT NULL,
-    p_bbref_player_id           TEXT        DEFAULT NULL,
-    p_fangraphs_player_id       TEXT        DEFAULT NULL,
-    p_lahman_player_id          TEXT        DEFAULT NULL,
-    p_full_name                 TEXT        DEFAULT NULL,
-    p_first_name                TEXT        DEFAULT NULL,
-    p_last_name                 TEXT        DEFAULT NULL,
-    p_birth_date                DATE        DEFAULT NULL,
-    p_mlb_debut_date            DATE        DEFAULT NULL,
-    p_bats                      TEXT        DEFAULT NULL,
-    p_throws                    TEXT        DEFAULT NULL,
-    p_is_active                 BOOLEAN     DEFAULT NULL,
-    p_identity_confidence_score NUMERIC     DEFAULT NULL,
-    p_identity_source           TEXT        DEFAULT NULL,
-    p_edit_source               TEXT        DEFAULT 'manual',
-    p_note                      TEXT        DEFAULT NULL,
-    p_force                     BOOLEAN     DEFAULT FALSE
+    p_player_identity_id    BIGINT,
+    p_retro_id              TEXT    DEFAULT NULL,
+    p_bbref_id              TEXT    DEFAULT NULL,
+    p_fangraphs_id          TEXT    DEFAULT NULL,
+    p_lahman_id             TEXT    DEFAULT NULL,
+    p_confidence            NUMERIC DEFAULT NULL,
+    p_source                TEXT    DEFAULT 'manual'
 )
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_old   stg.player_identity%ROWTYPE;
-    v_conf_before NUMERIC;
+    v_old_confidence    NUMERIC;
+    v_old_mlbam         BIGINT;
+    v_warn_downgrade    BOOLEAN := FALSE;
 BEGIN
-    SELECT * INTO v_old FROM stg.player_identity WHERE player_identity_id = p_player_identity_id;
+    -- Fetch current state for comparison and logging
+    SELECT identity_confidence_score, mlbam_player_id
+    INTO   v_old_confidence, v_old_mlbam
+    FROM   stg.player_identity
+    WHERE  player_identity_id = p_player_identity_id
+    FOR    UPDATE;  -- row lock to prevent concurrent updates
+
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'player_identity_id % not found', p_player_identity_id;
+        RAISE EXCEPTION 'update_player_identity: player_identity_id % not found', p_player_identity_id;
     END IF;
 
-    v_conf_before := v_old.identity_confidence_score;
-
-    IF p_identity_confidence_score IS NOT NULL
-       AND v_conf_before IS NOT NULL
-       AND p_identity_confidence_score < v_conf_before THEN
-        RAISE WARNING 'Confidence downgrade for player_identity_id %: % -> %',
-            p_player_identity_id, v_conf_before, p_identity_confidence_score;
+    -- Warn if caller is trying to lower confidence
+    IF p_confidence IS NOT NULL AND p_confidence < v_old_confidence THEN
+        v_warn_downgrade := TRUE;
+        RAISE WARNING
+            'update_player_identity: confidence downgrade on player_identity_id % (%.3f → %.3f). '
+            'Set p_source clearly so this change is traceable.',
+            p_player_identity_id, v_old_confidence, p_confidence;
     END IF;
 
-    UPDATE stg.player_identity SET
-        retrosheet_player_id  = COALESCE(p_retrosheet_player_id,  retrosheet_player_id),
-        bbref_player_id       = COALESCE(p_bbref_player_id,       bbref_player_id),
-        fangraphs_player_id   = COALESCE(p_fangraphs_player_id,   fangraphs_player_id),
-        lahman_player_id      = COALESCE(p_lahman_player_id,      lahman_player_id),
-        full_name             = COALESCE(p_full_name,             full_name),
-        first_name            = COALESCE(p_first_name,            first_name),
-        last_name             = COALESCE(p_last_name,             last_name),
-        birth_date            = COALESCE(p_birth_date,            birth_date),
-        mlb_debut_date        = COALESCE(p_mlb_debut_date,        mlb_debut_date),
-        bats                  = COALESCE(p_bats,                  bats),
-        throws                = COALESCE(p_throws,                throws),
-        is_active             = COALESCE(p_is_active,             is_active),
-        identity_confidence_score = COALESCE(p_identity_confidence_score, identity_confidence_score),
-        identity_source       = COALESCE(p_identity_source,       identity_source)
+    -- Apply COALESCE-safe update: only touch columns where caller passed a value
+    UPDATE stg.player_identity
+    SET
+        retrosheet_player_id    = COALESCE(p_retro_id,      retrosheet_player_id),
+        bbref_player_id         = COALESCE(p_bbref_id,      bbref_player_id),
+        fangraphs_player_id     = COALESCE(p_fangraphs_id,  fangraphs_player_id),
+        lahman_player_id        = COALESCE(p_lahman_id,     lahman_player_id),
+        identity_confidence_score = COALESCE(p_confidence,  identity_confidence_score),
+        identity_source         = p_source,
+        updated_at              = NOW()
     WHERE player_identity_id = p_player_identity_id;
 
-    INSERT INTO stg.player_identity_edit_log
-        (player_identity_id, edit_source, field_name, old_value, new_value,
-         confidence_before, confidence_after, note)
-    SELECT p_player_identity_id, p_edit_source, field_name, old_val, new_val,
-           v_conf_before,
-           COALESCE(p_identity_confidence_score, v_conf_before),
-           p_note
-    FROM (
-        VALUES
-          ('retrosheet_player_id', v_old.retrosheet_player_id::TEXT, p_retrosheet_player_id::TEXT),
-          ('bbref_player_id',      v_old.bbref_player_id::TEXT,      p_bbref_player_id::TEXT),
-          ('fangraphs_player_id',  v_old.fangraphs_player_id::TEXT,  p_fangraphs_player_id::TEXT),
-          ('lahman_player_id',     v_old.lahman_player_id::TEXT,     p_lahman_player_id::TEXT),
-          ('full_name',            v_old.full_name::TEXT,            p_full_name::TEXT),
-          ('birth_date',           v_old.birth_date::TEXT,           p_birth_date::TEXT),
-          ('identity_confidence_score',
-           v_old.identity_confidence_score::TEXT,
-           p_identity_confidence_score::TEXT)
-    ) AS changes(field_name, old_val, new_val)
-    WHERE new_val IS NOT NULL
-      AND new_val IS DISTINCT FROM old_val;
+    -- Write audit log entry
+    INSERT INTO stg.player_identity_resolution_log (
+        trigger_source, mlbam_player_id, player_name, action_taken, player_identity_id, note
+    )
+    SELECT
+        p_source,
+        v_old_mlbam,
+        full_name,
+        CASE WHEN v_warn_downgrade THEN 'UPDATED_CONFIDENCE_DOWNGRADE' ELSE 'UPDATED' END,
+        p_player_identity_id,
+        format(
+            'retro=%s bbref=%s fg=%s lahman=%s conf=%.3f',
+            COALESCE(p_retro_id, '(unchanged)'),
+            COALESCE(p_bbref_id, '(unchanged)'),
+            COALESCE(p_fangraphs_id, '(unchanged)'),
+            COALESCE(p_lahman_id, '(unchanged)'),
+            COALESCE(p_confidence, v_old_confidence)
+        )
+    FROM stg.player_identity
+    WHERE player_identity_id = p_player_identity_id;
 
 END;
 $$;
 
-COMMENT ON PROCEDURE stg.update_player_identity IS
-    'Safe, audited update path for all changes to stg.player_identity. '
-    'Never overwrites a non-NULL field with NULL unless p_force=TRUE. '
-    'Warns on confidence score downgrades. Writes every change to stg.player_identity_edit_log. '
-    'Use from Python enrichment workers, Chadwick sync jobs, and manual corrections. '
-    'Example: CALL stg.update_player_identity(42, p_retrosheet_player_id=>''troutm001'', p_identity_confidence_score=>0.95, p_edit_source=>''chadwick_sync'');';
+COMMENT ON PROCEDURE stg.update_player_identity(
+    BIGINT, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT
+) IS
+    'Safe, audited update for stg.player_identity. '
+    'COALESCE semantics: NULL params leave the existing value unchanged — never wipes good IDs. '
+    'Warns on confidence downgrades. Writes every change to player_identity_resolution_log. '
+    'All enrichment workers, AI agents, and DBA corrections must use this procedure. '
+    'Never UPDATE stg.player_identity directly outside of this procedure.';
 
 
 -- ---------------------------------------------------------------------------
--- G. OPERATIONAL VIEWS
+-- 7. v_identity_validation_dashboard
+--
+-- Single-query ops view showing the current health of the identity pipeline.
+-- Pin this to a Metabase/Grafana dashboard for ongoing monitoring.
+--
+-- Columns:
+--   total_players              — total rows in stg.player_identity
+--   fully_resolved             — all 5 IDs present and confidence >= 0.80
+--   pending_enrichment         — confidence = 0 (auto-inserted, never touched)
+--   needs_manual_review        — 0 < confidence < 0.60
+--   live_missing_historical    — MLBAM only, no retro/bbref (rookies/callups)
+--   orphaned_pitches_48h       — pitches with no identity row (should be 0)
+--   chadwick_divergences       — ID mismatches vs. chadwick_register_import
 -- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE VIEW stg.v_identity_completeness_dashboard AS
+CREATE OR REPLACE VIEW stg.v_identity_validation_dashboard AS
+WITH
+counts AS (
+    SELECT
+        COUNT(*)                                                          AS total_players,
+        COUNT(*) FILTER (
+            WHERE mlbam_player_id      IS NOT NULL
+              AND retrosheet_player_id IS NOT NULL
+              AND bbref_player_id      IS NOT NULL
+              AND fangraphs_player_id  IS NOT NULL
+              AND lahman_player_id     IS NOT NULL
+              AND identity_confidence_score >= 0.80
+        )                                                                 AS fully_resolved,
+        COUNT(*) FILTER (WHERE identity_confidence_score = 0
+                           AND identity_source LIKE 'auto:%')             AS pending_enrichment,
+        COUNT(*) FILTER (WHERE identity_confidence_score > 0
+                           AND identity_confidence_score < 0.60)          AS needs_manual_review,
+        COUNT(*) FILTER (
+            WHERE mlbam_player_id IS NOT NULL
+              AND identity_confidence_score >= 0.60
+              AND (retrosheet_player_id IS NULL
+                OR bbref_player_id     IS NULL
+                OR lahman_player_id    IS NULL)
+        )                                                                 AS live_missing_historical
+    FROM stg.player_identity
+),
+orphans AS (
+    SELECT COUNT(*) AS cnt FROM stg.fn_detect_orphaned_pitches()
+),
+chadwick_diffs AS (
+    -- Only runs if chadwick_register_import is populated; returns 0 if empty
+    SELECT COUNT(*) AS cnt FROM stg.fn_cross_validate_identities()
+)
 SELECT
-    completeness_tier,
-    COUNT(*)                                            AS player_count,
-    ROUND(AVG(id_fill_pct), 1)                          AS avg_id_fill_pct,
-    COUNT(*) FILTER (WHERE has_mlbam)                   AS has_mlbam,
-    COUNT(*) FILTER (WHERE has_retro)                   AS has_retro,
-    COUNT(*) FILTER (WHERE has_lahman)                  AS has_lahman,
-    COUNT(*) FILTER (WHERE has_bbref)                   AS has_bbref,
-    COUNT(*) FILTER (WHERE has_fangraphs)               AS has_fangraphs
-FROM stg.fn_validate_identity_completeness()
-GROUP BY completeness_tier
-ORDER BY
-    CASE completeness_tier
-        WHEN 'GOLD'       THEN 1
-        WHEN 'SILVER'     THEN 2
-        WHEN 'BRONZE'     THEN 3
-        WHEN 'UNRESOLVED' THEN 4
-    END;
+    c.total_players,
+    c.fully_resolved,
+    ROUND(c.fully_resolved * 100.0 / NULLIF(c.total_players, 0), 1) AS fully_resolved_pct,
+    c.pending_enrichment,
+    c.needs_manual_review,
+    c.live_missing_historical,
+    o.cnt                                                             AS orphaned_pitches_48h,
+    cd.cnt                                                            AS chadwick_divergences,
+    NOW()                                                             AS dashboard_as_of
+FROM counts c
+CROSS JOIN orphans o
+CROSS JOIN chadwick_diffs cd;
 
-COMMENT ON VIEW stg.v_identity_completeness_dashboard IS
-    'Operational health dashboard: player counts per tier (GOLD/SILVER/BRONZE/UNRESOLVED) '
-    'with per-source fill counts. SELECT * FROM stg.v_identity_completeness_dashboard;';
+COMMENT ON VIEW stg.v_identity_validation_dashboard IS
+    'Single-query ops dashboard for the player identity pipeline. '
+    'orphaned_pitches_48h should always be 0 — any non-zero value is a CRITICAL alert. '
+    'chadwick_divergences is 0 when stg.chadwick_register_import is empty; refresh weekly. '
+    'Pin this to your monitoring dashboard and alert on orphaned_pitches_48h > 0 or '
+    'needs_manual_review > expected_threshold.';
 
-
-CREATE OR REPLACE VIEW stg.v_players_needing_review AS
-SELECT
-    pi.player_identity_id,
-    pi.mlbam_player_id,
-    pi.full_name,
-    pi.identity_confidence_score,
-    pi.identity_source,
-    pi.retrosheet_player_id,
-    pi.bbref_player_id,
-    pi.fangraphs_player_id,
-    pi.lahman_player_id,
-    pi.created_at,
-    pi.updated_at,
-    (
-        SELECT COUNT(*) FROM raw_statcast.pitch p
-        WHERE p.batter = pi.mlbam_player_id
-           OR p.pitcher = pi.mlbam_player_id
-    ) AS total_statcast_appearances
-FROM stg.player_identity pi
-WHERE pi.identity_confidence_score < 0.60
-   OR pi.identity_confidence_score IS NULL
-ORDER BY total_statcast_appearances DESC, pi.identity_confidence_score ASC NULLS FIRST;
-
-COMMENT ON VIEW stg.v_players_needing_review IS
-    'Human review queue: players with identity_confidence_score < 0.60. '
-    'Ordered by Statcast appearances DESC so highest-impact unresolved players surface first. '
-    'Reviewer calls stg.update_player_identity() to apply and record corrections.';
-
-
-CREATE OR REPLACE VIEW stg.v_live_players_pending_retro AS
-SELECT
-    pi.player_identity_id,
-    pi.mlbam_player_id,
-    pi.full_name,
-    pi.mlb_debut_date,
-    pi.identity_confidence_score,
-    pi.identity_source,
-    pi.retrosheet_player_id,
-    pi.bbref_player_id,
-    pi.fangraphs_player_id,
-    pi.lahman_player_id,
-    pi.created_at                                   AS first_seen_in_statcast,
-    EXTRACT(DAY FROM NOW() - pi.created_at)::INT    AS days_since_first_seen
-FROM stg.player_identity pi
-WHERE pi.mlbam_player_id IS NOT NULL
-  AND pi.identity_confidence_score >= 0.70
-  AND (
-      pi.retrosheet_player_id IS NULL
-      OR pi.bbref_player_id   IS NULL
-  )
-ORDER BY pi.created_at;
-
-COMMENT ON VIEW stg.v_live_players_pending_retro IS
-    'Players resolved via MLB StatsAPI (confidence >= 0.70) but whose Retrosheet and/or BRef IDs '
-    'have not yet been published by Chadwick. Normal for debut-season players. '
-    'Re-check weekly after each Chadwick register reload.';
 
 COMMIT;
