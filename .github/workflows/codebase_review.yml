@@ -27,48 +27,68 @@ jobs:
           FOCUS: ${{ github.event.inputs.focus_area }}
         run: |
           pip3 install requests -q 2>/dev/null || true
-          python3 - << 'EOF'
-import os, subprocess, sys, requests
+          python3 <<'EOF'
+          import os, subprocess, sys, requests
 
-key = os.environ.get('OPENROUTER_API_KEY','')
-focus = os.environ.get('FOCUS','security and data integrity')
-if not key: sys.exit(0)
+          key = os.environ.get('OPENROUTER_API_KEY','')
+          focus = os.environ.get('FOCUS','security and data integrity')
+          if not key:
+              sys.exit(0)
 
-result = subprocess.run(['git','ls-files','--','*.py','*.sql'], capture_output=True, text=True)
-files = [f for f in result.stdout.strip().split('\n') if f][:25]
-chunks = []
-for f in files:
-    try:
-        chunks.append('### ' + f + '\n```\n' + open(f).read()[:1500] + '\n```')
-    except: pass
-combined = '\n\n'.join(chunks)[:14000]
+          result = subprocess.run([
+              'git','ls-files','--','*.py','*.sql'],
+              capture_output=True,
+              text=True
+          )
+          files = [f for f in result.stdout.strip().split('\n') if f][:25]
+          chunks = []
+          for f in files:
+              try:
+                  chunks.append('### ' + f + '\n```\n' + open(f).read()[:1500] + '\n```')
+              except Exception:
+                  pass
+          combined = '\n\n'.join(chunks)[:14000]
 
-prompt = ('Full codebase review for mlb PostgreSQL analytics platform. Focus: ' + focus + '\n'
-          'Architecture: raw->staging->canonical->mart. Hard rules: no bare except, no hardcoded secrets, '
-          'no DATABASE_URL in logs, workspace_id on multi-tenant inserts, raw schema append-only.\n'
-          'Produce prioritized issues: CRITICAL / HIGH / MEDIUM / LOW sections. '
-          'For each: file, line estimate, problem, fix.\n\nFILES:\n' + combined)
+          prompt = (
+              'Full codebase review for mlb PostgreSQL analytics platform. Focus: ' + focus + '\n'
+              'Architecture: raw->staging->canonical->mart. Hard rules: no bare except, no hardcoded secrets, '
+              'no DATABASE_URL in logs, workspace_id on multi-tenant inserts, raw schema append-only.\n'
+              'Produce prioritized issues: CRITICAL / HIGH / MEDIUM / LOW sections. '
+              'For each: file, line estimate, problem, fix.\n\nFILES:\n' + combined
+          )
 
-models = ['nvidia/nemotron-3-super-120b-a12b:free','poolside/laguna-m.1:free',
-          'openai/gpt-oss-120b:free','deepseek/deepseek-v4-flash:free','openrouter/free']
-review = None
-for m in models:
-    try:
-        r = requests.post('https://openrouter.ai/api/v1/chat/completions',
-            headers={'Authorization':'Bearer '+key,'Content-Type':'application/json',
-                     'HTTP-Referer':'https://github.com/cbwinslow/mlb'},
-            json={'model':m,'messages':[{'role':'user','content':prompt}],'max_tokens':3000},
-            timeout=120)
-        d = r.json()
-        if 'choices' in d and d['choices']:
-            review = d['choices'][0]['message']['content']
-            print('Done: ' + m); break
-    except Exception as e:
-        print('Failed ' + m + ': ' + str(e))
+          models = [
+              'nvidia/nemotron-3-super-120b-a12b:free',
+              'poolside/laguna-m.1:free',
+              'openai/gpt-oss-120b:free',
+              'deepseek/deepseek-v4-flash:free',
+              'openrouter/free',
+          ]
+          review = None
+          for m in models:
+              try:
+                  r = requests.post(
+                      'https://openrouter.ai/api/v1/chat/completions',
+                      headers={
+                          'Authorization': 'Bearer ' + key,
+                          'Content-Type': 'application/json',
+                          'HTTP-Referer': 'https://github.com/cbwinslow/mlb',
+                      },
+                      json={'model': m, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 3000},
+                      timeout=120,
+                  )
+                  d = r.json()
+                  if 'choices' in d and d['choices']:
+                      review = d['choices'][0]['message']['content']
+                      print('Done: ' + m)
+                      break
+              except Exception as e:
+                  print('Failed ' + m + ': ' + str(e))
 
-if not review: sys.exit(0)
-open('/tmp/review.md','w').write('## Codebase Review\n\n**Focus:** ' + focus + '\n\n' + review)
-EOF
+          if not review:
+              sys.exit(0)
+          open('/tmp/review.md', 'w').write('## Codebase Review\n\n**Focus:** ' + focus + '\n\n' + review)
+          EOF
 
       - name: Create issue with findings
         env:

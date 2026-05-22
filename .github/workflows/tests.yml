@@ -29,7 +29,39 @@ jobs:
   pytest:
     name: "pytest [${{ matrix.test-group }}] py${{ matrix.python-version }}"
     runs-on: [self-hosted, homelab, linux]
+    strategy:
+      matrix:
+        test-group: [all]
+        python-version:
+          - ${{ inputs.python-version }}
     outputs:
       coverage-pct: ${{ steps.extract-coverage.outputs.pct }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+          python -m pip install pytest pytest-cov -q
+      - name: Run pytest
+        run: |
+          python -m pytest tests/python/ --cov=baseball --cov-report=xml --cov-report=term --cov-fail-under=${{ inputs.coverage-threshold }}
+      - id: extract-coverage
+        name: Extract coverage percentage
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
 
-    services:
+          xml_path = 'coverage.xml'
+          if not os.path.exists(xml_path):
+              raise SystemExit('coverage.xml not found')
+
+          tree = ET.parse(xml_path)
+          line_rate = float(tree.getroot().attrib.get('line-rate', 0))
+          pct = round(line_rate * 100, 1)
+          print(f"coverage-pct={pct}", file=open(os.environ['GITHUB_OUTPUT'], 'a'))
+          PY

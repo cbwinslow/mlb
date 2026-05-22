@@ -8,7 +8,7 @@ on:
       job:
         description: "Which job to run"
         type: choice
-        options: [all, full-tests, db-health, enrichment-dry-run, cleanup]
+        options: [all, full-tests, db-health, enrichment-dry-run]
         default: all
 
 # Never cancel nightly jobs mid-run
