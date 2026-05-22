@@ -37,7 +37,7 @@ This layered model is meant to stop responsibilities from bleeding together. A r
 
 ### `meta`
 
-The `meta` schema acts as the ingestion control plane. It tracks source systems, endpoints, ingest runs, source files, payload registries, and ingest errors. If the question is “what happened during ingestion?” the answer should begin in `meta`.
+The `meta` schema acts as the ingestion control plane. It tracks source systems, endpoints, ingest runs, source files, payload registries, and ingest errors. If the question is "what happened during ingestion?" the answer should begin in `meta`.
 
 ### `ref`
 
@@ -165,6 +165,87 @@ The current SQL design expects a future Python implementation with at least thes
 - **Agent tool layer** for ForgeCode, OpenCode, Gemini, Agno, or other agent frameworks to call controlled tools instead of improvising direct DB behavior.
 - **Optional web UI** for browsing predictions, models, jobs, and sabermetric research surfaces.
 
+## Testing architecture
+
+Testing is a first-class concern across all three layers of the platform: SQL, Python, and CI/CD.
+
+### SQL testing strategy
+
+SQL tests use **pgTAP**, a PostgreSQL unit testing framework that runs assertions inside the database as plain SQL. Tests are organized under `tests/sql/` and are grouped into:
+
+- `tests/sql/bootstrap/` — smoke tests that verify the schema bootstraps without error.
+- `tests/sql/constraints/` — meta-level checks verifying that required schemas, tables, columns, and indexes exist.
+- `tests/sql/unit/` — pgTAP unit tests for functions, triggers, and stored procedures.
+- `tests/sql/integration/` — integration tests that insert fixture data and assert that multi-step workflows produce correct results.
+
+The most critical SQL test areas are:
+- The player identity trigger fires correctly and inserts placeholders for new MLBAM IDs.
+- Orphaned pitch records are detected by `stg.fn_detect_orphaned_pitches()`.
+- Cross-validation functions correctly flag ID divergence against Chadwick.
+- Partial unique indexes on `stg.player_identity` enforce key uniqueness while allowing NULLs.
+
+### Python testing strategy
+
+Python tests use **pytest** with these plugins:
+- `pytest-asyncio` for async SQLAlchemy and asyncpg code paths.
+- `pytest-cov` for line and branch coverage reporting.
+- `factory-boy` for fixture generation.
+- `freezegun` for deterministic datetime behavior in enrichment worker tests.
+
+Tests are organized under `tests/python/` and cover:
+- Unit tests for settings, configuration, and CLI commands.
+- Unit tests for the player identity enrichment worker (with mocked external API calls).
+- Integration tests for the full ingest-trigger-enrich cycle against a real test database.
+
+See `docs/testing.md` for the full test guide, fixture patterns, and coverage targets.
+
+### Linting and type checking
+
+All Python code is linted with **Ruff** and type-checked with **Mypy**. Configuration lives in `pyproject.toml` under `[tool.ruff]`, `[tool.ruff.lint]`, and `[tool.mypy]`. Both are enforced in CI.
+
+SQL files are linted with **sqlfluff** using the `postgres` dialect. Configuration lives in `.sqlfluff` at the repo root.
+
+## CI/CD and self-hosted runner architecture
+
+### GitHub Actions workflows
+
+The CI/CD system is built on GitHub Actions. Relevant workflows:
+
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `ci.yml` | push/PR | Combined Python + SQL fast gate |
+| `python-ci.yml` | push/PR | Python lint, type check, pytest |
+| `sql-ci.yml` | SQL/docs changes | DB bootstrap, pgTAP SQL tests |
+| `aider_ci_autofix.yml` | Issue label | Aider AI autofix on labeled issues |
+| `gemini_autofix.yml` | Issue/PR | Gemini AI autofix |
+| `gemini_pr_review.yml` | PR | Gemini code review |
+| `openrouter_review.yml` | PR | OpenRouter AI review |
+| `issue_triage.yml` | Issue created | Auto-label and triage |
+
+### Self-hosted runner
+
+The platform has a **self-hosted GitHub Actions runner** registered to this repository. This runner is used for:
+- Heavy SQL test jobs that require a live PostgreSQL instance without the 6-hour GitHub-hosted limit.
+- Integration tests that need access to local data files or the homelab Postgres instance.
+- Jobs that benefit from faster local I/O (e.g. bulk Chadwick or Lahman fixture loading).
+
+To use the self-hosted runner in a workflow job, set:
+
+```yaml
+runs-on: [self-hosted, linux]
+```
+
+For jobs that should run on both GitHub-hosted and self-hosted environments, use a matrix:
+
+```yaml
+strategy:
+  matrix:
+    runner: [ubuntu-latest, [self-hosted, linux]]
+runs-on: ${{ matrix.runner }}
+```
+
+See `docs/local-runner.md` for setup instructions for the self-hosted runner.
+
 ## Current state
 
 At the current phase of the project, the database architecture is ahead of the application architecture. That is acceptable, but it means the next implementation step should be defining the Python repository structure and runtime boundaries that map cleanly onto the schemas described here.
@@ -177,4 +258,5 @@ The next architecture-adjacent tasks should be:
 2. define the Python project structure,
 3. map worker responsibilities to `ops` and `meta` contracts,
 4. define the FastAPI service boundary against `api`, `auth`, and `mart`,
-5. decide which operations are exposed to agents as tools rather than raw SQL access.
+5. decide which operations are exposed to agents as tools rather than raw SQL access,
+6. complete the test infrastructure setup (see Issues #14, #15, #16).
