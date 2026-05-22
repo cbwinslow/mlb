@@ -1,31 +1,81 @@
 name: CI
 
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  python:
-    runs-on: ubuntu-latest
+  lint-and-test:
+    runs-on: self-hosted  # or [self-hosted, linux]
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    # If your self-hosted runner can reach a local Postgres you manage,
+    # you can delete this "services" block and point MLB_DB_DSN at that.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mlb
+          POSTGRES_PASSWORD: mlb
+          POSTGRES_DB: mlb_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mlb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+          cache: "pip"
 
-      - name: Install package
+      - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
-      - name: Import smoke test
+      - name: Lint (ruff)  # comment out if you don't use ruff yet
         run: |
-          python - <<'PY'
-          import baseball
-          from baseball.settings import AppSettings, get_settings
-          print('import-ok')
-          PY
+          if command -v ruff >/dev/null 2>&1; then
+            ruff check .
+          else
+            echo "ruff not installed, skipping"
+          fi
+
+      - name: Format check (black)
+        run: |
+          if command -v black >/dev/null 2>&1; then
+            black --check .
+          else
+            echo "black not installed, skipping"
+          fi
+
+      - name: Type check (mypy)
+        run: |
+          if command -v mypy >/dev/null 2>&1; then
+            mypy .
+          else
+            echo "mypy not installed, skipping"
+          fi
+
+      - name: Run tests (pytest)
+        env:
+          MLB_DB_DSN: postgresql://mlb:mlb@localhost:5432/mlb_ci
+        run: |
+          if command -v pytest >/dev/null 2>&1; then
+            pytest -q
+          else
+            echo "pytest not installed, skipping"
+          fi

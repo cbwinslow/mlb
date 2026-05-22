@@ -1,0 +1,31 @@
+name: DB health checks
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # hourly
+  workflow_dispatch:
+
+jobs:
+  db-health:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run identity health report
+        env:
+          MLB_DB_DSN: ${{ secrets.MLB_DB_DSN }}
+        run: |
+          psql "$MLB_DB_DSN" -c "SELECT stg.fn_full_identity_health_report();"
+
+      - name: Check orphaned pitches
+        env:
+          MLB_DB_DSN: ${{ secrets.MLB_DB_DSN }}
+        run: |
+          COUNT=$(psql -t -A "$MLB_DB_DSN" -c "SELECT COUNT(*) FROM stg.fn_detect_orphaned_pitches();")
+          echo "orphaned_pitches=$COUNT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "Found orphaned pitches; failing job."
+            exit 1
+          fi

@@ -1,0 +1,19 @@
+python:
+  - any: ["**/*.py"]
+
+sql:
+  - any: ["**/*.sql"]
+
+docs:
+  - any: ["docs/**", "**/*.md"]
+
+workflows:
+  - any: [".github/workflows/**"]
+
+identity-pipeline:
+  - any:
+      - "sql/050_staging/**"
+      - "sql/080_functions/013_*"
+      - "sql/080_functions/014_*"
+      - "sql/080_functions/015_*"
+      - "scripts/enrich_player_identity.py"

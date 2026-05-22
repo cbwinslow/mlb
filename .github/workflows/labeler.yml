@@ -1,13 +1,22 @@
-name: Labeler
+bug:
+  - "(?i)bug"
+  - "(?i)error"
+  - "(?i)exception"
 
-on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+enhancement:
+  - "(?i)feature request"
+  - "(?i)enhancement"
 
-jobs:
-  label:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/labeler@v6
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+docs:
+  - "(?i)documentation"
+  - "(?i)docs"
+
+database:
+  - "(?i)postgres"
+  - "(?i)sql"
+  - "(?i)migration"
+
+identity-pipeline:
+  - "(?i)player identity"
+  - "(?i)chadwick"
+  - "(?i)statcast"

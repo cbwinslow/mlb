@@ -1,32 +1,41 @@
 sql:
   - changed-files:
-      - any-glob-to-any-file: 'sql/**'
+      - any-glob-to-any-file:
+          - 'sql/**'
 
 docs:
   - changed-files:
-      - any-glob-to-any-file: 'docs/**'
-      - any-glob-to-any-file: '*.md'
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '**/*.md'
 
 python:
   - changed-files:
-      - any-glob-to-any-file: 'baseball/**'
-      - any-glob-to-any-file: 'pyproject.toml'
+      - any-glob-to-any-file:
+          - '**/*.py'
+          - 'scripts/**'
+          - 'baseball/**'
+          - 'pyproject.toml'
+          - 'requirements*.txt'
 
 security:
   - changed-files:
-      - any-glob-to-any-file: 'docs/security.md'
-      - any-glob-to-any-file: 'SECURITY.md'
-      - any-glob-to-any-file: '.env.example'
-      - any-glob-to-any-file: '.github/workflows/**'
+      - any-glob-to-any-file:
+          - 'docs/security.md'
+          - 'SECURITY.md'
+          - '.env.example'
+          - '.github/workflows/**'
 
 ingestion:
   - changed-files:
-      - any-glob-to-any-file: 'docs/ingestion.md'
-      - any-glob-to-any-file: 'docs/DATA_INGESTION.md'
-      - any-glob-to-any-file: 'sql/030meta/**'
-      - any-glob-to-any-file: 'sql/040raw/**'
-      - any-glob-to-any-file: 'sql/050staging/**'
+      - any-glob-to-any-file:
+          - 'docs/ingestion.md'
+          - 'docs/DATA_INGESTION.md'
+          - 'sql/030_meta/**'
+          - 'sql/040_raw/**'
+          - 'sql/050_staging/**'
 
 github:
   - changed-files:
-      - any-glob-to-any-file: '.github/**'
+      - any-glob-to-any-file:
+          - '.github/**'
