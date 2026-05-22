@@ -1,189 +1,214 @@
-# External Data Sources & Player ID Reference
+# External Player Identity Tools Reference
 
-## Overview
-
-All external IDs are attributes on `stg.player_identity`. The internal
-`player_identity_id` is the warehouse's permanent business key — never store
-an external ID as a foreign key in fact tables.
-
-Resolution priority order:
-
-1. **Chadwick Register** — seed historical crosswalk (bulk, one-time + weekly refresh)
-2. **MLB StatsAPI `people/xrefId`** — resolve modern/active players by MLBAM id
-3. **pybaseball `playerid_lookup()`** — name-based fallback when StatsAPI returns no xref
-4. **Manual review via `stg.v_candidates_pending_human_review`** — last resort
+This document describes every external data source used in the player identity
+resolution pipeline. All enrichment workers, AI agents, and DBA scripts should
+consult this reference before calling external APIs.
 
 ---
 
-## Source Reference Table
+## Resolution Priority Order
 
-| Source | What it provides | Key IDs | Update frequency | How we load it |
-|---|---|---|---|---|
-| [Chadwick Bureau Register](https://github.com/chadwickbureau/register) | Comprehensive cross-source player authority. Historical + active players. | `key_mlbam`, `key_retro`, `key_bbref`, `key_fangraphs`, `key_lahman`, birth info | Weekly (GitHub release) | `COPY stg.chadwick_register_import FROM 'people.csv' CSV HEADER;` then `stg.fn_cross_validate_identities()` |
-| [MLB StatsAPI](https://statsapi.mlb.com/api/v1/people/{id}?hydrate=xrefId) | Official MLBAM IDs, active roster metadata, xref to Retrosheet/Lahman where MLB has them | `mlbam_player_id`, partial xrefs | Real-time | Python `statsapi.lookup_player(mlbam_id)` |
-| [pybaseball `playerid_lookup`](https://github.com/jldbc/pybaseball) | Name -> all IDs crosswalk backed by Smart Fantasy Baseball player ID map | All five ID systems | Pulled on demand | Python `pybaseball.playerid_lookup(last, first)` |
-| [Lahman Database `People` table](http://www.seanlahman.com/baseball-archive/statistics/) | Historical player bio (birth date, bats/throws, debut, career span) | `lahman_player_id` (e.g. `ruthba01`) | Annual release | Bulk CSV load into `raw_lahman.people` |
-| [Retrosheet Game Logs / Bio](https://www.retrosheet.org/biofile.htm) | Historical game-level event data, player bio file | `retrosheet_player_id` (e.g. `ruthb101`) | Annual/event file | Bulk CSV load into `raw_retrosheet.*` |
-| [Baseball Reference](https://www.baseball-reference.com/) | Comprehensive stats, WAR | `bbref_player_id` (e.g. `ruthba01`) | Via Chadwick; never scraped directly | Chadwick `key_bbref` column |
-| [FanGraphs](https://www.fangraphs.com/) | Advanced metrics (FIP, xFIP, wRC+, etc.) | `fangraphs_player_id` (numeric string) | Via Chadwick or pybaseball | Chadwick `key_fangraphs` column |
+When resolving a player identity, attempt sources in this order:
 
----
-
-## ID Format Reference
-
-| ID system | Column in `stg.player_identity` | Format | Example |
-|---|---|---|---|
-| MLBAM / Statcast | `mlbam_player_id` | Integer | `592450` |
-| Retrosheet | `retrosheet_player_id` | `last5first2NN` | `ruthba01` |
-| Baseball Reference | `bbref_player_id` | Same as Retrosheet in most cases | `ruthba01` |
-| FanGraphs | `fangraphs_player_id` | Numeric string | `1234` |
-| Lahman | `lahman_player_id` | `last5first2NN` | `ruthba01` |
-
-> **Note:** Retrosheet, BRef, and Lahman IDs are often identical for the same
-> player but are maintained as separate columns because they can diverge,
-> particularly for players active before systematic cross-referencing.
+| Priority | Source | Best for | Coverage |
+|----------|--------|----------|----------|
+| 1 | Chadwick Bureau Register | Historical crosswalk (seed) | 1800s – present, updated weekly |
+| 2 | MLB Stats API `people/xref` | Modern players, real-time debuts | 2000 – present |
+| 3 | pybaseball `playerid_lookup` | Name-based fallback | Historical + modern |
+| 4 | Lahman People table | Historical bios and stats | 1871 – prior season |
+| 5 | Retrosheet bio/master | Pre-Statcast historical IDs | 1900 – prior season |
+| 6 | Contextual game fingerprint | Last-resort (date + team + slot) | Any era |
 
 ---
 
-## Chadwick Register — Seed & Refresh Procedure
+## Sources
 
-```bash
-# 1. Download latest release
-curl -L https://github.com/chadwickbureau/register/releases/latest/download/people.csv \
-     -o /tmp/chadwick_people.csv
+### 1. Chadwick Bureau Register
 
-# 2. Truncate staging import table
-psql $DATABASE_URL -c "TRUNCATE stg.chadwick_register_import;"
+- **URL:** <https://github.com/chadwickbureau/register>
+- **File:** `data/people.csv` in the repo root
+- **Python:** `pip install requests` then download the raw CSV directly
+- **Key columns:** `key_mlbam`, `key_retro`, `key_bbref`, `key_fangraphs`,
+  `key_lahman`, `name_first`, `name_last`, `birth_year`, `mlb_played_first`,
+  `mlb_played_last`
+- **Update cadence:** Weekly; re-seed `stg.chadwick_register_import` after each
+  update and run `SELECT * FROM stg.fn_cross_validate_identities()`
+- **Confidence score assigned:** 0.90 (seed), 0.95 (seed + confirmed by second source)
+- **Limitations:** Occasional lag for players debuting mid-season; very rare
+  mapping errors corrected in later releases
 
-# 3. Bulk load
-psql $DATABASE_URL -c "\\COPY stg.chadwick_register_import FROM '/tmp/chadwick_people.csv' CSV HEADER;"
+```python
+import requests, io
+import pandas as pd
 
-# 4. Cross-validate and review divergences
-psql $DATABASE_URL -c "SELECT * FROM stg.fn_cross_validate_identities() LIMIT 50;"
+CHADWICK_URL = (
+    "https://raw.githubusercontent.com/chadwickbureau/register/master/data/people.csv"
+)
 
-# 5. Apply clean matches (review suggested_action column first)
-# psql $DATABASE_URL -c "SELECT suggested_action FROM stg.fn_cross_validate_identities();"
-# Then pipe those UPDATE statements to psql after review.
+def load_chadwick() -> pd.DataFrame:
+    resp = requests.get(CHADWICK_URL, timeout=30)
+    resp.raise_for_status()
+    return pd.read_csv(io.StringIO(resp.text), low_memory=False)
 ```
 
 ---
 
-## Python Enrichment Worker — ID Resolution Priority
+### 2. MLB Stats API — `people/xref`
+
+- **Base URL:** `https://statsapi.mlb.com/api/v1/`
+- **Endpoint:** `people/{mlbam_id}?hydrate=xrefIds` — returns the person record
+  including cross-reference IDs (Retrosheet, Lahman, etc.) where MLB has them
+- **Python package:** `python-mlb-statsapi` (`pip install python-mlb-statsapi`)
+  or call the REST endpoint directly
+- **Key fields returned:** `id` (MLBAM), `fullName`, `birthDate`, `xrefIds`
+- **Update cadence:** Real-time; call on demand for new MLBAM IDs
+- **Confidence score assigned:** 0.90 when `xrefIds` contains retro/lahman;
+  0.75 when MLBAM-only data returned
+- **Limitations:** Only covers players MLB has cross-referenced; older
+  pre-Statcast players may have no `xrefIds`
 
 ```python
-import statsapi
-import pybaseball
+import statsapi  # python-mlb-statsapi
 
-def resolve_player_ids(mlbam_id: int, player_name: str) -> dict:
-    """
-    Returns cross-source IDs and a confidence score.
-    Priority: MLB StatsAPI xref -> pybaseball -> flag for manual review.
-    Insert result into stg.player_identity_candidate, then call
-    stg.fn_reconcile_candidates() to auto-promote or flag for human review.
-    """
-    # Priority 1: MLB StatsAPI xrefId
+def resolve_via_mlb_api(mlbam_id: int) -> dict:
+    """Returns dict with resolved IDs or empty dict if not found."""
     try:
         people = statsapi.lookup_player(mlbam_id)
-        if people:
-            p = people[0]
-            xrefs = p.get('xrefIds', {})
-            if xrefs.get('retrosheet') or xrefs.get('bbref'):
-                return {
-                    'key_mlbam':     mlbam_id,
-                    'key_retro':     xrefs.get('retrosheet'),
-                    'key_bbref':     xrefs.get('bbref'),
-                    'key_lahman':    xrefs.get('lahman'),
-                    'key_fangraphs': xrefs.get('fangraphs'),
-                    'confidence':    0.92,
-                    'source':        'mlb_statsapi:xref'
-                }
+        if not people:
+            return {}
+        person = people[0]
+        xref = person.get("xrefIds", {})
+        return {
+            "key_mlbam":     person["id"],
+            "full_name":     person["fullName"],
+            "birth_date":    person.get("birthDate"),
+            "key_retro":     xref.get("retrosheet"),
+            "key_lahman":    xref.get("lahman"),
+            "key_bbref":     xref.get("bbref"),
+            "key_fangraphs": xref.get("fangraphs"),
+        }
     except Exception:
-        pass
+        return {}
+```
 
-    # Priority 2: pybaseball name lookup
-    try:
-        parts = player_name.strip().split()
-        last, first = parts[-1], parts[0] if len(parts) > 1 else ''
-        result = pybaseball.playerid_lookup(last, first)
-        if not result.empty:
-            row = result.iloc[0]
-            return {
-                'key_mlbam':     int(row.get('key_mlbam', mlbam_id)),
-                'key_retro':     row.get('key_retro'),
-                'key_bbref':     row.get('key_bbref'),
-                'key_lahman':    row.get('key_lahman'),
-                'key_fangraphs': str(int(row['key_fangraphs'])) if row.get('key_fangraphs') else None,
-                'confidence':    0.80,
-                'source':        'pybaseball:name_lookup'
-            }
-    except Exception:
-        pass
+---
 
-    # Priority 3: flag for manual review
+### 3. pybaseball — `playerid_lookup`
+
+- **Package:** `pip install pybaseball`
+- **Function:** `pybaseball.playerid_lookup(last, first, fuzzy=True)`
+- **Returns:** DataFrame with `key_mlbam`, `key_retro`, `key_bbref`,
+  `key_fangraphs`, `key_lahman`, `mlb_played_first`, `mlb_played_last`
+- **Data source:** Backed by the Smart Fantasy Baseball / Chadwick crosswalk;
+  effectively a cached mirror
+- **Update cadence:** Follows pybaseball release cycle; may lag Chadwick weekly
+  updates by a few weeks
+- **Confidence score assigned:** 0.85 (exact name match); 0.60 (fuzzy match)
+- **Limitations:** Name normalization issues with accented characters and
+  hyphens; Jr./Sr. disambiguation requires birth year cross-check
+
+```python
+from pybaseball import playerid_lookup
+
+def resolve_via_pybaseball(last_name: str, first_name: str) -> dict:
+    df = playerid_lookup(last_name, first_name, fuzzy=True)
+    if df.empty:
+        return {}
+    row = df.iloc[0]
     return {
-        'key_mlbam':     mlbam_id,
-        'key_retro':     None,
-        'key_bbref':     None,
-        'key_lahman':    None,
-        'key_fangraphs': None,
-        'confidence':    0.30,
-        'source':        'unresolved:needs_manual_review'
+        "key_mlbam":     int(row["key_mlbam"]) if pd.notna(row["key_mlbam"]) else None,
+        "key_retro":     row.get("key_retro"),
+        "key_bbref":     row.get("key_bbref"),
+        "key_fangraphs": str(int(row["key_fangraphs"])) if pd.notna(row.get("key_fangraphs")) else None,
+        "key_lahman":    row.get("key_lahmanid"),
     }
 ```
 
-After building results, insert into `stg.player_identity_candidate`, then call:
+---
+
+### 4. Lahman Database — `People` table
+
+- **URL:** <https://www.seanlahman.com/baseball-archive/statistics/>
+  and <https://github.com/chadwickbureau/basebball-databank>
+- **Key table:** `People` (columns: `playerID`, `nameFirst`, `nameLast`,
+  `birthYear`, `birthMonth`, `birthDay`, `debut`, `finalGame`, `bbrefID`,
+  `retroID`)
+- **Warehouse table:** Load into `raw_lahman.people` via your existing
+  Lahman ingest job
+- **Update cadence:** Annual (post-season release)
+- **Confidence score assigned:** 0.90 when cross-referenced with Chadwick
+- **Limitations:** Annual cadence means rookies from the current season are
+  absent until the next release
+
+---
+
+### 5. Retrosheet — bio/master files
+
+- **URL:** <https://www.retrosheet.org/biofile.htm>
+- **Key file:** `biofile.txt` — tab-delimited, one row per player with
+  Retrosheet ID, full name, birth date, debut date
+- **Update cadence:** Annual (post-season)
+- **Confidence score assigned:** 0.85 when Retrosheet ID confirmed via Chadwick
+- **Limitations:** Historical coverage only; very limited modern player data
+
+---
+
+### 6. Contextual Game Fingerprint (DB Functions)
+
+For the truly hard cases, the database provides two fallback functions:
 
 ```sql
-SELECT * FROM stg.fn_reconcile_candidates();
+-- Find a player by game date + team + batting order slot
+SELECT * FROM stg.fn_pinpoint_player_by_context(
+    '2024-07-15'::DATE, 'NYY', 3, NULL
+);
+
+-- Validate batting slot consistency for a whole game
+SELECT * FROM stg.fn_contextual_fingerprint_check('2024-07-15', 532441)
+WHERE flag LIKE 'WARN%';
 ```
 
-This auto-promotes scores >= 0.85 and flags the rest for human review in
-`stg.v_candidates_pending_human_review`.
+See `sql/080_functions/013_identity_validation_functions.sql` and
+`sql/080_functions/014_identity_reconciliation_functions.sql` for full
+function signatures and examples.
 
 ---
 
-## Confidence Score Scale
+## Confidence Score Reference
 
-| Score range | Meaning | DB action |
-|---|---|---|
-| `0.00` | Auto-inserted placeholder, never enriched | Pending enrichment queue |
-| `0.01–0.49` | Enrichment attempted, low confidence | Manual review queue |
-| `0.50–0.59` | Partial match (name only or single-source) | Manual review queue |
-| `0.60–0.79` | Good match (MLBAM confirmed, some xrefs) | Live missing historical IDs view |
-| `0.80–0.94` | Strong match (MLBAM + 2+ xrefs confirmed) | Auto-promote eligible |
-| `0.95–1.00` | Authoritative (Chadwick confirmed + StatsAPI) | Fully resolved |
+| Score range | Meaning | Action |
+|-------------|---------|--------|
+| 0.00 | Auto-inserted placeholder, never enriched | Run enrichment worker |
+| 0.50–0.59 | Name-only fuzzy match, high uncertainty | Flag for manual review |
+| 0.60–0.74 | Single source match, plausible | Enrichment worker logs; human should confirm |
+| 0.75–0.84 | MLB StatsAPI match, no cross-check | Accept; schedule Chadwick cross-validate |
+| 0.85–0.94 | Pybaseball exact match OR Chadwick seed | Auto-promote via `fn_reconcile_candidates` |
+| 0.95–1.00 | Chadwick + secondary source confirmed | Fully resolved; no action needed |
 
-Auto-promotion threshold in `stg.fn_reconcile_candidates()` defaults to `0.85`.
-Override: `SELECT * FROM stg.fn_reconcile_candidates(0.90);`
-
----
-
-## Live Player to Historical ID Gap (Normal Behavior)
-
-When a new MLB player debuts:
-
-1. Statcast assigns an MLBAM id immediately.
-2. The DB trigger inserts a `confidence = 0` placeholder.
-3. MLB StatsAPI `people/xrefId` may return partial xrefs within days.
-4. **Retrosheet, BRef, and Lahman IDs will not exist until those registers publish their next release** — expected and normal.
-5. The player appears in `stg.v_live_players_pending_historical_ids` until the next Chadwick weekly refresh fills them in.
-
-Do not treat a NULL `retrosheet_player_id` for a current-season player as an error.
+All updates — regardless of source — must go through
+`CALL stg.update_player_identity(...)`. Never `UPDATE stg.player_identity`
+directly.
 
 ---
 
-## Validation Quick Reference
+## Weekly Maintenance Checklist
 
-| What to check | Query |
-|---|---|
-| Overall ID fill rates | `SELECT * FROM stg.fn_validate_identity_completeness();` |
-| Trigger health (must always be 0 rows) | `SELECT * FROM stg.fn_detect_orphaned_pitches();` |
-| Compare vs. Chadwick | `SELECT * FROM stg.fn_cross_validate_identities();` |
-| Full ops dashboard | `SELECT * FROM stg.v_identity_validation_dashboard;` |
-| Full JSON health report | `SELECT stg.fn_full_identity_health_report();` |
-| Find player by game context | `SELECT * FROM stg.fn_pinpoint_player_by_context('2024-07-15', 'NYY', 3, 2);` |
-| Validate a game lineup | `SELECT * FROM stg.fn_validate_game_lineup('2024-07-15', 532441) WHERE flag LIKE 'WARN%';` |
-| Contextual fingerprint check | `SELECT * FROM stg.fn_contextual_fingerprint_check('2024-07-15', 532441);` |
-| Human review queue | `SELECT * FROM stg.v_candidates_pending_human_review;` |
-| Manually update a player | `CALL stg.update_player_identity(42, 'ruthba01', 'ruthba01', '1234', 'ruthba01', 0.95, 'manual:dba');` |
-| Process enrichment candidates | `SELECT * FROM stg.fn_reconcile_candidates();` |
+```bash
+# 1. Refresh Chadwick register
+python scripts/enrich_player_identity.py --mode=seed-chadwick
+
+# 2. Run enrichment worker on pending queue
+python scripts/enrich_player_identity.py --mode=enrich --limit=1000
+
+# 3. Auto-promote high-confidence candidates
+psql $DATABASE_URL -c "SELECT * FROM stg.fn_reconcile_candidates();"
+
+# 4. Cross-validate against fresh Chadwick snapshot
+psql $DATABASE_URL -c "SELECT * FROM stg.fn_cross_validate_identities() LIMIT 50;"
+
+# 5. Check dashboard — orphaned_pitches_48h must be 0
+psql $DATABASE_URL -c "SELECT * FROM stg.v_identity_validation_dashboard;"
+
+# 6. Generate full health report (logs to resolution_log)
+psql $DATABASE_URL -c "SELECT stg.fn_full_identity_health_report();"
+```
