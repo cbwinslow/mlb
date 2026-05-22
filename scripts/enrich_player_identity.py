@@ -1,67 +1,123 @@
 #!/usr/bin/env python3
 """
 enrich_player_identity.py
+=========================
+Player identity enrichment worker for the MLB data warehouse.
 
-Player identity enrichment worker for the MLB warehouse.
+Reads stg.v_players_pending_enrichment from the database, attempts to resolve
+cross-source player IDs using the following priority chain:
 
-Modes:
-  --mode seed-chadwick   Download Chadwick register CSV and COPY into
-                         stg.chadwick_register_import, then bulk-upsert
-                         known IDs into stg.player_identity.
+  1. MLB Stats API  xrefId endpoint        (confidence 0.90)  — best for modern players
+  2. pybaseball     playerid_lookup()       (confidence 0.80)  — name-based lookup
+  3. Chadwick       raw.chadwick_register   (confidence 0.85)  — direct DB lookup
+  4. Name fuzzy     pg_trgm similarity      (confidence 0.55)  — last-resort heuristic
 
-  --mode enrich          Poll stg.v_players_pending_enrichment and attempt
-                         to resolve each player's cross-source IDs via:
-                           1. MLB StatsAPI xrefIds
-                           2. pybaseball.playerid_lookup (exact name match)
-                           3. pybaseball.playerid_lookup (fuzzy match)
-                         Inserts candidates into stg.player_identity_candidate;
-                         high-confidence candidates are auto-promoted by
-                         stg.fn_reconcile_candidates().
-
-  --mode reconcile       Call stg.fn_reconcile_candidates() to promote
-                         high-confidence candidates and flag low-confidence
-                         ones for human review.
-
-  --mode health          Print the JSON health report from
-                         stg.fn_full_identity_health_report().
-
-Environment variables:
-  DATABASE_URL           PostgreSQL DSN (required)
-                         e.g. postgresql://user:pass@host:5432/mlb
+For each player resolved, writes a candidate row to stg.player_identity_candidate.
+After processing the batch, calls stg.fn_reconcile_candidates() which auto-promotes
+candidates with score >= auto_threshold (default 0.85) and flags the rest for
+human review in stg.v_candidates_pending_human_review.
 
 Usage:
-  python scripts/enrich_player_identity.py --mode enrich --limit 500
-  python scripts/enrich_player_identity.py --mode seed-chadwick
-  python scripts/enrich_player_identity.py --mode health
+    python enrich_player_identity.py
+    python enrich_player_identity.py --batch-size 200 --dry-run
+    python enrich_player_identity.py --min-confidence 0.70 --reconcile-after
+    python enrich_player_identity.py --chadwick-refresh /tmp/people.csv
+
+Environment variables (or .env file):
+    MLB_DB_DSN          PostgreSQL DSN, e.g. postgresql://user:pass@host:5432/mlb
+    MLB_STATS_API_BASE  Base URL for MLB Stats API (default https://statsapi.mlb.com)
+    LOG_LEVEL           DEBUG | INFO | WARNING | ERROR (default INFO)
+
+Dependencies:
+    psycopg2-binary
+    pybaseball
+    requests
+    python-dotenv
+    rapidfuzz          (optional; used for fuzzy name matching fallback)
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import io
 import json
 import logging
 import os
 import sys
+import time
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
 from typing import Optional
 
 import psycopg2
 import psycopg2.extras
 import requests
 
+try:
+    import pybaseball
+    PYBASEBALL_AVAILABLE = True
+except ImportError:
+    PYBASEBALL_AVAILABLE = False
+    logging.warning("pybaseball not installed — name-lookup fallback disabled")
+
+try:
+    from rapidfuzz import fuzz
+    RAPIDFUZZ_AVAILABLE = True
+except ImportError:
+    RAPIDFUZZ_AVAILABLE = False
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+MLB_STATS_API_BASE = os.getenv("MLB_STATS_API_BASE", "https://statsapi.mlb.com")
+DB_DSN = os.getenv("MLB_DB_DSN", "")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format=json.dumps({
+        "time": "%(asctime)s",
+        "level": "%(levelname)s",
+        "msg": "%(message)s",
+    }),
+    stream=sys.stdout,
 )
 log = logging.getLogger(__name__)
 
-CHADWICK_URL = (
-    "https://raw.githubusercontent.com/chadwickbureau/register/master/data/people.csv"
-)
 
-AUTO_THRESHOLD = 0.85   # candidates >= this are auto-promoted by fn_reconcile_candidates
-FUZZY_THRESHOLD = 0.60  # below this, candidate is flagged for human review
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PendingPlayer:
+    player_identity_id: int
+    mlbam_player_id: int
+    full_name: Optional[str]
+
+
+@dataclass
+class ResolvedCandidate:
+    mlbam_player_id: int
+    candidate_name: Optional[str]
+    retrosheet_player_id: Optional[str] = None
+    bbref_player_id: Optional[str] = None
+    fangraphs_player_id: Optional[int] = None
+    lahman_player_id: Optional[str] = None
+    candidate_birth_date: Optional[date] = None
+    candidate_score: float = 0.0
+    candidate_reason: str = ""
+    source_system_code: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -69,416 +125,597 @@ FUZZY_THRESHOLD = 0.60  # below this, candidate is flagged for human review
 # ---------------------------------------------------------------------------
 
 def get_connection() -> psycopg2.extensions.connection:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        log.error("DATABASE_URL environment variable is not set.")
-        sys.exit(1)
-    return psycopg2.connect(dsn)
+    if not DB_DSN:
+        raise RuntimeError(
+            "MLB_DB_DSN environment variable not set. "
+            "Set it to a valid PostgreSQL DSN before running."
+        )
+    return psycopg2.connect(DB_DSN, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
-# ---------------------------------------------------------------------------
-# Source 1: MLB Stats API
-# ---------------------------------------------------------------------------
-
-def resolve_via_mlb_api(mlbam_id: int) -> dict:
-    """
-    Query the MLB Stats API for a player by MLBAM ID.
-    Returns a dict with resolved cross-source IDs or {} on failure.
-    Confidence: 0.90 when xrefIds present, 0.75 when MLBAM-only.
-    """
-    try:
-        import statsapi  # python-mlb-statsapi
-        people = statsapi.lookup_player(mlbam_id)
-        if not people:
-            return {}
-        person = people[0]
-        xref = person.get("xrefIds") or {}
-        score = 0.90 if any(xref.values()) else 0.75
-        return {
-            "key_mlbam":     person["id"],
-            "full_name":     person.get("fullName"),
-            "birth_date":    person.get("birthDate"),
-            "key_retro":     xref.get("retrosheet"),
-            "key_lahman":    xref.get("lahman"),
-            "key_bbref":     xref.get("bbref"),
-            "key_fangraphs": xref.get("fangraphs"),
-            "score":         score,
-            "source":        "mlb_statsapi:xref",
-            "reason":        f"MLB StatsAPI lookup for mlbam_id={mlbam_id}",
-        }
-    except Exception as exc:
-        log.debug("MLB StatsAPI lookup failed for %s: %s", mlbam_id, exc)
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# Source 2 & 3: pybaseball playerid_lookup
-# ---------------------------------------------------------------------------
-
-def resolve_via_pybaseball(last_name: str, first_name: str, fuzzy: bool = False) -> dict:
-    """
-    Query pybaseball.playerid_lookup by name.
-    Returns a dict with resolved IDs or {} on no match.
-    Confidence: 0.85 exact, 0.60 fuzzy.
-    """
-    if not last_name:
-        return {}
-    try:
-        import pandas as pd
-        from pybaseball import playerid_lookup
-        df = playerid_lookup(last_name, first_name, fuzzy=fuzzy)
-        if df.empty:
-            return {}
-        row = df.iloc[0]
-        score = 0.60 if fuzzy else 0.85
-
-        def safe_int(val) -> Optional[int]:
-            try:
-                return int(val) if pd.notna(val) else None
-            except (ValueError, TypeError):
-                return None
-
-        def safe_str(val) -> Optional[str]:
-            try:
-                return str(int(val)) if pd.notna(val) else None
-            except (ValueError, TypeError):
-                return str(val) if pd.notna(val) else None
-
-        return {
-            "key_mlbam":     safe_int(row.get("key_mlbam")),
-            "key_retro":     safe_str(row.get("key_retro")),
-            "key_bbref":     safe_str(row.get("key_bbref")),
-            "key_fangraphs": safe_str(row.get("key_fangraphs")),
-            "key_lahman":    safe_str(row.get("key_lahmanid")),
-            "score":         score,
-            "source":        f"pybaseball:{'fuzzy' if fuzzy else 'exact'}",
-            "reason":        f"pybaseball.playerid_lookup('{last_name}', '{first_name}', fuzzy={fuzzy})",
-        }
-    except Exception as exc:
-        log.debug("pybaseball lookup failed for %s %s: %s", first_name, last_name, exc)
-        return {}
-
-
-def name_to_parts(full_name: Optional[str]) -> tuple[str, str]:
-    """Split 'Firstname Lastname' into (last, first). Handles None gracefully."""
-    if not full_name:
-        return ("", "")
-    parts = full_name.strip().split()
-    if len(parts) == 1:
-        return (parts[0], "")
-    return (parts[-1], parts[0])
-
-
-# ---------------------------------------------------------------------------
-# Mode: enrich
-# ---------------------------------------------------------------------------
-
-def run_enrich(conn, limit: int = 500) -> None:
-    """
-    Poll stg.v_players_pending_enrichment and attempt to resolve each player.
-    Writes candidates to stg.player_identity_candidate.
-    Then calls fn_reconcile_candidates() to auto-promote high-confidence rows.
-    """
-    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+def fetch_pending_players(
+    conn: psycopg2.extensions.connection,
+    batch_size: int = 500,
+) -> list[PendingPlayer]:
+    """Read the enrichment work queue from the database."""
+    with conn.cursor() as cur:
         cur.execute(
             """
             SELECT player_identity_id, mlbam_player_id, full_name
             FROM   stg.v_players_pending_enrichment
+            ORDER  BY times_seen_in_statcast DESC, first_seen_at
             LIMIT  %s
             """,
-            (limit,),
+            (batch_size,),
         )
-        pending = cur.fetchall()
+        rows = cur.fetchall()
+    return [
+        PendingPlayer(
+            player_identity_id=r["player_identity_id"],
+            mlbam_player_id=r["mlbam_player_id"],
+            full_name=r["full_name"],
+        )
+        for r in rows
+    ]
 
-    log.info("Enriching %d pending players.", len(pending))
-    resolved = 0
-    flagged = 0
+
+def write_candidate(
+    conn: psycopg2.extensions.connection,
+    candidate: ResolvedCandidate,
+    dry_run: bool = False,
+) -> None:
+    """Insert a resolved candidate into stg.player_identity_candidate."""
+    if dry_run:
+        log.info("[DRY RUN] would write candidate: %s", candidate)
+        return
 
     with conn.cursor() as cur:
-        for row in pending:
-            mlbam_id  = row["mlbam_player_id"]
-            full_name = row["full_name"]
-            last, first = name_to_parts(full_name)
-
-            # --- Resolution cascade ---
-            result = (
-                resolve_via_mlb_api(mlbam_id)
-                or resolve_via_pybaseball(last, first, fuzzy=False)
-                or resolve_via_pybaseball(last, first, fuzzy=True)
-            )
-
-            if not result:
-                log.warning(
-                    "No resolution found for mlbam_id=%s name=%r — flagging for manual review.",
-                    mlbam_id, full_name,
-                )
-                # Insert a zero-score candidate so it appears in v_candidates_pending_human_review
-                cur.execute(
-                    """
-                    INSERT INTO stg.player_identity_candidate (
-                        source_system_code, source_natural_key,
-                        mlbam_player_id, candidate_name,
-                        candidate_score, candidate_reason,
-                        reviewed_flag, accepted_flag
-                    ) VALUES (
-                        'enrichment_worker', %s::TEXT,
-                        %s, %s,
-                        0.0, 'All resolution methods exhausted — manual lookup required',
-                        TRUE, NULL
-                    )
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (mlbam_id, mlbam_id, full_name),
-                )
-                # Write to resolution log
-                cur.execute(
-                    """
-                    INSERT INTO stg.player_identity_resolution_log (
-                        trigger_source, mlbam_player_id, player_name,
-                        action_taken, player_identity_id, note
-                    ) VALUES (
-                        'enrich_player_identity.py', %s, %s,
-                        'ENRICHMENT_FAILED_MANUAL_REVIEW_REQUIRED',
-                        %s,
-                        'All sources exhausted. Check stg.v_candidates_pending_human_review.'
-                    )
-                    """,
-                    (mlbam_id, full_name, row["player_identity_id"]),
-                )
-                flagged += 1
-                conn.commit()
-                continue
-
-            score  = result.get("score", 0.70)
-            source = result.get("source", "unknown")
-            reason = result.get("reason", "")
-
-            # Insert candidate row
-            cur.execute(
-                """
-                INSERT INTO stg.player_identity_candidate (
-                    source_system_code, source_natural_key,
-                    mlbam_player_id,
-                    retrosheet_player_id,
-                    lahman_player_id,
-                    bbref_player_id,
-                    fangraphs_player_id,
-                    candidate_name,
-                    candidate_birth_date,
-                    candidate_score,
-                    candidate_reason,
-                    reviewed_flag
-                ) VALUES (
-                    %s, %s::TEXT,
-                    %s, %s, %s, %s, %s,
-                    %s, %s::DATE,
-                    %s, %s,
-                    FALSE
-                )
-                ON CONFLICT DO NOTHING
-                """,
-                (
-                    source,
-                    mlbam_id,
-                    result.get("key_mlbam") or mlbam_id,
-                    result.get("key_retro"),
-                    result.get("key_lahman"),
-                    result.get("key_bbref"),
-                    result.get("key_fangraphs"),
-                    result.get("full_name") or full_name,
-                    result.get("birth_date"),
-                    score,
-                    reason,
-                ),
-            )
-            resolved += 1
-            conn.commit()
-            log.debug(
-                "Candidate inserted: mlbam=%s name=%r score=%.2f source=%s",
-                mlbam_id, full_name, score, source,
-            )
-
-    log.info(
-        "Enrichment complete. Resolved: %d  Flagged for manual review: %d",
-        resolved, flagged,
-    )
-
-    # Auto-promote high-confidence candidates
-    log.info("Running fn_reconcile_candidates()...")
-    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute("SELECT * FROM stg.fn_reconcile_candidates(%s, %s)",
-                    (AUTO_THRESHOLD, limit))
-        results = cur.fetchall()
-        promoted = sum(1 for r in results if r["action"] == "AUTO_PROMOTED")
-        review   = sum(1 for r in results if r["action"] == "FLAGGED_FOR_REVIEW")
-        log.info("Reconcile: auto-promoted=%d flagged_for_review=%d", promoted, review)
-    conn.commit()
-
-
-# ---------------------------------------------------------------------------
-# Mode: seed-chadwick
-# ---------------------------------------------------------------------------
-
-def run_seed_chadwick(conn) -> None:
-    """
-    Download the Chadwick register CSV, TRUNCATE stg.chadwick_register_import,
-    bulk-load it, then upsert known IDs into stg.player_identity.
-    """
-    log.info("Downloading Chadwick register from %s", CHADWICK_URL)
-    resp = requests.get(CHADWICK_URL, timeout=60)
-    resp.raise_for_status()
-    csv_bytes = resp.content
-    log.info("Downloaded %.1f KB", len(csv_bytes) / 1024)
-
-    with conn.cursor() as cur:
-        # Reload import staging table
-        cur.execute("TRUNCATE stg.chadwick_register_import")
-        cur.copy_expert(
-            """
-            COPY stg.chadwick_register_import (
-                key_mlbam, key_retro, key_bbref, key_fangraphs, key_lahman,
-                name_first, name_last, name_given,
-                birth_year, birth_month, birth_day,
-                mlb_played_first, mlb_played_last
-            )
-            FROM STDIN
-            WITH (FORMAT CSV, HEADER TRUE, NULL '')
-            """,
-            io.BytesIO(csv_bytes),
-        )
-        cur.execute("SELECT COUNT(*) FROM stg.chadwick_register_import")
-        count = cur.fetchone()[0]
-        log.info("Loaded %d rows into stg.chadwick_register_import", count)
-
-        # Bulk-upsert into stg.player_identity for all rows that have an MLBAM ID
         cur.execute(
             """
-            INSERT INTO stg.player_identity (
+            INSERT INTO stg.player_identity_candidate (
                 mlbam_player_id,
+                candidate_name,
                 retrosheet_player_id,
                 bbref_player_id,
                 fangraphs_player_id,
                 lahman_player_id,
-                first_name,
-                last_name,
-                full_name,
-                identity_confidence_score,
-                identity_source
+                candidate_birth_date,
+                candidate_score,
+                candidate_reason,
+                source_system_code,
+                reviewed_flag,
+                accepted_flag
+            ) VALUES (
+                %(mlbam)s, %(name)s, %(retro)s, %(bbref)s,
+                %(fg)s, %(lahman)s, %(birth)s,
+                %(score)s, %(reason)s, %(source)s,
+                FALSE, NULL
             )
-            SELECT
-                key_mlbam,
-                key_retro,
-                key_bbref,
-                key_fangraphs::TEXT,
-                key_lahman,
-                name_first,
-                name_last,
-                TRIM(COALESCE(name_first,'') || ' ' || COALESCE(name_last,'')),
-                0.90,
-                'chadwick:seed'
-            FROM stg.chadwick_register_import
-            WHERE key_mlbam IS NOT NULL
-            ON CONFLICT (mlbam_player_id)
-            WHERE mlbam_player_id IS NOT NULL
+            ON CONFLICT (mlbam_player_id, source_system_code)
             DO UPDATE SET
-                retrosheet_player_id   = COALESCE(EXCLUDED.retrosheet_player_id,  stg.player_identity.retrosheet_player_id),
-                bbref_player_id        = COALESCE(EXCLUDED.bbref_player_id,        stg.player_identity.bbref_player_id),
-                fangraphs_player_id    = COALESCE(EXCLUDED.fangraphs_player_id,    stg.player_identity.fangraphs_player_id),
-                lahman_player_id       = COALESCE(EXCLUDED.lahman_player_id,       stg.player_identity.lahman_player_id),
-                first_name             = COALESCE(EXCLUDED.first_name,             stg.player_identity.first_name),
-                last_name              = COALESCE(EXCLUDED.last_name,              stg.player_identity.last_name),
-                full_name              = COALESCE(EXCLUDED.full_name,              stg.player_identity.full_name),
-                identity_confidence_score = GREATEST(
-                    EXCLUDED.identity_confidence_score,
-                    stg.player_identity.identity_confidence_score
+                retrosheet_player_id = EXCLUDED.retrosheet_player_id,
+                bbref_player_id      = EXCLUDED.bbref_player_id,
+                fangraphs_player_id  = EXCLUDED.fangraphs_player_id,
+                lahman_player_id     = EXCLUDED.lahman_player_id,
+                candidate_score      = GREATEST(
+                    stg.player_identity_candidate.candidate_score,
+                    EXCLUDED.candidate_score
                 ),
-                identity_source        = 'chadwick:seed',
-                updated_at             = NOW()
-            WHERE stg.player_identity.identity_confidence_score < 0.90
-            """
+                candidate_reason     = EXCLUDED.candidate_reason,
+                reviewed_flag        = FALSE,
+                accepted_flag        = NULL
+            """,
+            {
+                "mlbam":  candidate.mlbam_player_id,
+                "name":   candidate.candidate_name,
+                "retro":  candidate.retrosheet_player_id,
+                "bbref":  candidate.bbref_player_id,
+                "fg":     candidate.fangraphs_player_id,
+                "lahman": candidate.lahman_player_id,
+                "birth":  candidate.candidate_birth_date,
+                "score":  candidate.candidate_score,
+                "reason": candidate.candidate_reason,
+                "source": candidate.source_system_code,
+            },
         )
-        seeded = cur.rowcount
-        log.info("Upserted %d rows into stg.player_identity from Chadwick seed", seeded)
-
     conn.commit()
-    log.info("Chadwick seed complete. Run stg.fn_cross_validate_identities() to diff.")
 
 
-# ---------------------------------------------------------------------------
-# Mode: reconcile
-# ---------------------------------------------------------------------------
-
-def run_reconcile(conn, threshold: float = AUTO_THRESHOLD, limit: int = 500) -> None:
-    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute("SELECT * FROM stg.fn_reconcile_candidates(%s, %s)",
-                    (threshold, limit))
-        results = cur.fetchall()
-    conn.commit()
-    promoted = sum(1 for r in results if r["action"] == "AUTO_PROMOTED")
-    review   = sum(1 for r in results if r["action"] == "FLAGGED_FOR_REVIEW")
-    log.info("Reconcile: total=%d auto_promoted=%d flagged_for_review=%d",
-             len(results), promoted, review)
-    if review:
-        log.info(
-            "Run: SELECT * FROM stg.v_candidates_pending_human_review; to see flagged rows."
-        )
-
-
-# ---------------------------------------------------------------------------
-# Mode: health
-# ---------------------------------------------------------------------------
-
-def run_health(conn) -> None:
+def run_reconcile(
+    conn: psycopg2.extensions.connection,
+    auto_threshold: float = 0.85,
+    dry_run: bool = False,
+) -> list[dict]:
+    """Call stg.fn_reconcile_candidates() and return results."""
+    if dry_run:
+        log.info("[DRY RUN] skipping fn_reconcile_candidates()")
+        return []
     with conn.cursor() as cur:
-        cur.execute("SELECT stg.fn_full_identity_health_report()")
-        report = cur.fetchone()[0]
-    conn.commit()
-    print(json.dumps(report, indent=2, default=str))
-    critical = report.get("critical_alert", False)
-    if critical:
-        log.error(
-            "CRITICAL ALERT: orphaned_pitches_48h=%s — trigger may be broken!",
-            report.get("orphaned_pitches_48h"),
+        cur.execute(
+            "SELECT * FROM stg.fn_reconcile_candidates(%s, 500)",
+            (auto_threshold,),
         )
-        sys.exit(2)
+        results = [dict(r) for r in cur.fetchall()]
+    conn.commit()
+    return results
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Resolution methods
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Player identity enrichment worker")
-    parser.add_argument(
-        "--mode",
-        choices=["enrich", "seed-chadwick", "reconcile", "health"],
-        required=True,
-        help="Operation mode",
+def resolve_via_mlb_statsapi(mlbam_id: int) -> Optional[ResolvedCandidate]:
+    """
+    Query MLB Stats API person xref endpoint.
+    Returns cross-source IDs for a known MLBAM person ID.
+
+    Endpoint: GET /api/v1/people/{personId}?hydrate=xrefIds
+    Relevant xref types: 'retrosheet', 'bbref', 'fangraphs', 'lahman'
+    """
+    url = f"{MLB_STATS_API_BASE}/api/v1/people/{mlbam_id}"
+    params = {"hydrate": "xrefIds"}
+
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        log.debug("StatsAPI request failed for mlbam=%s: %s", mlbam_id, exc)
+        return None
+
+    people = data.get("people", [])
+    if not people:
+        return None
+
+    person = people[0]
+    xrefs = {x.get("xrefType", ""): x.get("xrefId") for x in person.get("xrefIds", [])}
+
+    full_name = person.get("fullName") or (
+        f"{person.get('firstName', '')} {person.get('lastName', '')}".strip() or None
+    )
+    birth_date_str = person.get("birthDate")
+    birth_date = None
+    if birth_date_str:
+        try:
+            birth_date = date.fromisoformat(birth_date_str[:10])
+        except ValueError:
+            pass
+
+    fangraphs_id = xrefs.get("fangraphs")
+    try:
+        fangraphs_id = int(fangraphs_id) if fangraphs_id else None
+    except (ValueError, TypeError):
+        fangraphs_id = None
+
+    candidate = ResolvedCandidate(
+        mlbam_player_id=mlbam_id,
+        candidate_name=full_name,
+        retrosheet_player_id=xrefs.get("retrosheet"),
+        bbref_player_id=xrefs.get("bbref"),
+        fangraphs_player_id=fangraphs_id,
+        lahman_player_id=xrefs.get("lahman"),
+        candidate_birth_date=birth_date,
+        candidate_score=0.90,
+        candidate_reason="MLB StatsAPI xrefId lookup",
+        source_system_code="statsapi",
+    )
+
+    # Must have resolved at least one cross-source ID to count
+    if not any([
+        candidate.retrosheet_player_id,
+        candidate.bbref_player_id,
+        candidate.fangraphs_player_id,
+        candidate.lahman_player_id,
+    ]):
+        log.debug("StatsAPI returned no xref IDs for mlbam=%s", mlbam_id)
+        return None
+
+    return candidate
+
+
+def resolve_via_pybaseball(full_name: Optional[str], mlbam_id: int) -> Optional[ResolvedCandidate]:
+    """
+    Use pybaseball.playerid_lookup() for name-based resolution.
+    Matches result rows back to the MLBAM id to confirm correctness.
+    """
+    if not PYBASEBALL_AVAILABLE or not full_name:
+        return None
+
+    parts = full_name.strip().split()
+    if len(parts) < 2:
+        return None
+
+    last = parts[-1]
+    first = parts[0]
+
+    try:
+        result = pybaseball.playerid_lookup(last, first, fuzzy=False)
+    except Exception as exc:
+        log.debug("pybaseball lookup failed for '%s': %s", full_name, exc)
+        return None
+
+    if result is None or result.empty:
+        # Try fuzzy as fallback
+        try:
+            result = pybaseball.playerid_lookup(last, first, fuzzy=True)
+        except Exception:
+            return None
+
+    if result is None or result.empty:
+        return None
+
+    # Filter to the row matching our MLBAM id
+    matched = result[result["key_mlbam"] == mlbam_id]
+    if matched.empty:
+        # Use first result if MLBAM matches nothing — lower confidence
+        row = result.iloc[0]
+        score = 0.60
+        reason = f"pybaseball name lookup (unconfirmed MLBAM match) for '{full_name}'"
+    else:
+        row = matched.iloc[0]
+        score = 0.80
+        reason = f"pybaseball playerid_lookup confirmed MLBAM match for '{full_name}'"
+
+    def safe_int(val) -> Optional[int]:
+        try:
+            v = int(val)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def safe_str(val) -> Optional[str]:
+        v = str(val).strip() if val is not None else ""
+        return v if v and v not in ("nan", "None", "0") else None
+
+    return ResolvedCandidate(
+        mlbam_player_id=mlbam_id,
+        candidate_name=full_name,
+        retrosheet_player_id=safe_str(row.get("key_retro")),
+        bbref_player_id=safe_str(row.get("key_bbref")),
+        fangraphs_player_id=safe_int(row.get("key_fangraphs")),
+        lahman_player_id=safe_str(row.get("key_lahman")),
+        candidate_score=score,
+        candidate_reason=reason,
+        source_system_code="pybaseball",
+    )
+
+
+def resolve_via_chadwick_db(
+    conn: psycopg2.extensions.connection,
+    mlbam_id: int,
+    full_name: Optional[str],
+) -> Optional[ResolvedCandidate]:
+    """
+    Direct lookup against raw.chadwick_register already loaded in the database.
+    First tries exact MLBAM match; falls back to name match if available.
+    """
+    with conn.cursor() as cur:
+        # Try exact MLBAM match
+        cur.execute(
+            """
+            SELECT
+                NULLIF(TRIM(key_retro),     '') AS retro,
+                NULLIF(TRIM(key_bbref),     '') AS bbref,
+                NULLIF(TRIM(key_fangraphs), '') AS fangraphs,
+                NULLIF(TRIM(key_lahman),    '') AS lahman,
+                CONCAT_WS(' ',
+                    NULLIF(TRIM(name_first), ''),
+                    NULLIF(TRIM(name_last),  '')
+                )                               AS full_name,
+                birth_year, birth_month, birth_day
+            FROM raw.chadwick_register
+            WHERE key_mlbam = %s::TEXT
+              AND key_mlbam <> ''
+            LIMIT 1
+            """,
+            (str(mlbam_id),),
+        )
+        row = cur.fetchone()
+
+    if not row:
+        # Fallback: name similarity (requires pg_trgm; best-effort)
+        if not full_name:
+            return None
+        parts = full_name.strip().split()
+        if len(parts) < 2:
+            return None
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    NULLIF(TRIM(key_retro),     '') AS retro,
+                    NULLIF(TRIM(key_bbref),     '') AS bbref,
+                    NULLIF(TRIM(key_fangraphs), '') AS fangraphs,
+                    NULLIF(TRIM(key_lahman),    '') AS lahman,
+                    CONCAT_WS(' ',
+                        NULLIF(TRIM(name_first), ''),
+                        NULLIF(TRIM(name_last),  '')
+                    )                               AS full_name,
+                    birth_year, birth_month, birth_day
+                FROM raw.chadwick_register
+                WHERE LOWER(name_last)  = LOWER(%s)
+                  AND LOWER(name_first) LIKE LOWER(%s) || '%%'
+                LIMIT 1
+                """,
+                (parts[-1], parts[0]),
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return None
+        score = 0.65
+        reason = f"Chadwick name match for '{full_name}' (MLBAM not in Chadwick)"
+    else:
+        score = 0.85
+        reason = f"Chadwick direct MLBAM lookup for id={mlbam_id}"
+
+    birth_date = None
+    try:
+        if all([
+            row.get("birth_year"),
+            row.get("birth_month"),
+            row.get("birth_day"),
+        ]):
+            birth_date = date(
+                int(row["birth_year"]),
+                int(row["birth_month"]),
+                int(row["birth_day"]),
+            )
+    except (ValueError, TypeError):
+        pass
+
+    fg = row.get("fangraphs")
+    try:
+        fg = int(fg) if fg else None
+    except (ValueError, TypeError):
+        fg = None
+
+    return ResolvedCandidate(
+        mlbam_player_id=mlbam_id,
+        candidate_name=row.get("full_name") or full_name,
+        retrosheet_player_id=row.get("retro"),
+        bbref_player_id=row.get("bbref"),
+        fangraphs_player_id=fg,
+        lahman_player_id=row.get("lahman"),
+        candidate_birth_date=birth_date,
+        candidate_score=score,
+        candidate_reason=reason,
+        source_system_code="chadwick:db",
+    )
+
+
+def resolve_player(
+    conn: psycopg2.extensions.connection,
+    player: PendingPlayer,
+    min_confidence: float = 0.50,
+) -> Optional[ResolvedCandidate]:
+    """
+    Run the full priority resolution chain for a single player.
+    Returns the best candidate found, or None if nothing meets min_confidence.
+    """
+    # Priority 1: MLB Stats API (most authoritative for modern players)
+    candidate = resolve_via_mlb_statsapi(player.mlbam_player_id)
+    if candidate and candidate.candidate_score >= min_confidence:
+        log.debug(
+            "Resolved mlbam=%s via StatsAPI (score=%.2f)",
+            player.mlbam_player_id,
+            candidate.candidate_score,
+        )
+        return candidate
+
+    # Priority 2: Chadwick DB (best historical cross-reference)
+    candidate = resolve_via_chadwick_db(conn, player.mlbam_player_id, player.full_name)
+    if candidate and candidate.candidate_score >= min_confidence:
+        log.debug(
+            "Resolved mlbam=%s via Chadwick DB (score=%.2f)",
+            player.mlbam_player_id,
+            candidate.candidate_score,
+        )
+        return candidate
+
+    # Priority 3: pybaseball name lookup
+    if player.full_name:
+        candidate = resolve_via_pybaseball(player.full_name, player.mlbam_player_id)
+        if candidate and candidate.candidate_score >= min_confidence:
+            log.debug(
+                "Resolved mlbam=%s via pybaseball (score=%.2f)",
+                player.mlbam_player_id,
+                candidate.candidate_score,
+            )
+            return candidate
+
+    # All methods exhausted or confidence too low
+    log.info(
+        "Could not resolve mlbam=%s name='%s' above min_confidence=%.2f",
+        player.mlbam_player_id,
+        player.full_name,
+        min_confidence,
+    )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Chadwick refresh helper
+# ---------------------------------------------------------------------------
+
+def load_chadwick_csv(
+    conn: psycopg2.extensions.connection,
+    csv_path: str,
+) -> int:
+    """
+    Truncates raw.chadwick_register and bulk-loads a new Chadwick people.csv.
+    Returns the number of rows loaded.
+    """
+    path = Path(csv_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Chadwick CSV not found: {csv_path}")
+
+    log.info("Loading Chadwick CSV from %s", path)
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE TABLE raw.chadwick_register")
+        with open(path, "r", encoding="utf-8") as f:
+            # Use COPY for performance; psycopg2 copy_expert streams the file
+            cur.copy_expert(
+                "COPY raw.chadwick_register ("
+                "  key_person, key_uuid, key_mlbam, key_retro, key_bbref, "
+                "  key_bbref_minors, key_fangraphs, key_npb, key_sr_nfl, "
+                "  key_sr_nba, key_sr_nhl, key_findagrave, key_lahman, "
+                "  name_last, name_first, name_given, name_suffix, "
+                "  name_matrilineal, name_nick, "
+                "  birth_year, birth_month, birth_day, "
+                "  death_year, death_month, death_day, "
+                "  pro_played_first, pro_played_last, "
+                "  mlb_played_first, mlb_played_last, "
+                "  col_played_first, col_played_last, "
+                "  pro_managed_first, pro_managed_last, "
+                "  pro_umpired_first, pro_umpired_last"
+                ") FROM STDIN CSV HEADER",
+                f,
+            )
+        row_count = cur.rowcount
+    conn.commit()
+    log.info("Loaded %d rows into raw.chadwick_register", row_count)
+    return row_count
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="MLB player identity enrichment worker",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
     )
     parser.add_argument(
-        "--limit",
+        "--batch-size",
         type=int,
         default=500,
-        help="Max rows to process (enrich/reconcile modes)",
+        help="Number of players to process per run (default: 500)",
     )
     parser.add_argument(
-        "--threshold",
-        type=float,
-        default=AUTO_THRESHOLD,
-        help="Auto-promote confidence threshold (reconcile mode, default 0.85)",
+        "--dry-run",
+        action="store_true",
+        help="Resolve players but do not write candidates to the database",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.50,
+        help="Minimum confidence score to write a candidate (default: 0.50)",
+    )
+    parser.add_argument(
+        "--auto-threshold",
+        type=float,
+        default=0.85,
+        help="Confidence threshold for auto-promotion in fn_reconcile_candidates (default: 0.85)",
+    )
+    parser.add_argument(
+        "--reconcile-after",
+        action="store_true",
+        default=True,
+        help="Call fn_reconcile_candidates() after writing all candidates (default: True)",
+    )
+    parser.add_argument(
+        "--no-reconcile",
+        dest="reconcile_after",
+        action="store_false",
+        help="Skip fn_reconcile_candidates() call at end of run",
+    )
+    parser.add_argument(
+        "--chadwick-refresh",
+        metavar="CSV_PATH",
+        help="Path to Chadwick people.csv to load before enrichment run",
+    )
+    parser.add_argument(
+        "--sleep-ms",
+        type=int,
+        default=100,
+        help="Milliseconds to sleep between API calls (default: 100ms to avoid rate limits)",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+
+    if not DB_DSN:
+        log.error(
+            "MLB_DB_DSN environment variable is required. "
+            "Set it to a PostgreSQL DSN before running."
+        )
+        sys.exit(1)
 
     conn = get_connection()
+
     try:
-        if args.mode == "enrich":
-            run_enrich(conn, limit=args.limit)
-        elif args.mode == "seed-chadwick":
-            run_seed_chadwick(conn)
-        elif args.mode == "reconcile":
-            run_reconcile(conn, threshold=args.threshold, limit=args.limit)
-        elif args.mode == "health":
-            run_health(conn)
+        # Optional: load a fresh Chadwick CSV before enrichment
+        if args.chadwick_refresh:
+            rows_loaded = load_chadwick_csv(conn, args.chadwick_refresh)
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM stg.fn_refresh_chadwick()")
+                result = cur.fetchone()
+            conn.commit()
+            log.info(
+                "Chadwick refresh complete: loaded=%d inspected=%d inserted=%d updated=%d",
+                rows_loaded,
+                result["rows_inspected"] if result else 0,
+                result["rows_inserted"] if result else 0,
+                result["rows_updated"] if result else 0,
+            )
+
+        # Fetch the pending enrichment work queue
+        players = fetch_pending_players(conn, batch_size=args.batch_size)
+        log.info("Found %d players pending enrichment", len(players))
+
+        if not players:
+            log.info("No players pending enrichment. Exiting.")
+            return
+
+        resolved = 0
+        unresolved = 0
+
+        for player in players:
+            candidate = resolve_player(
+                conn=conn,
+                player=player,
+                min_confidence=args.min_confidence,
+            )
+
+            if candidate:
+                write_candidate(conn, candidate, dry_run=args.dry_run)
+                resolved += 1
+            else:
+                unresolved += 1
+
+            # Polite sleep between API calls
+            if args.sleep_ms > 0:
+                time.sleep(args.sleep_ms / 1000.0)
+
+        log.info(
+            "Enrichment batch complete: resolved=%d unresolved=%d",
+            resolved,
+            unresolved,
+        )
+
+        # Reconcile: auto-promote high-confidence candidates, flag the rest
+        if args.reconcile_after and not args.dry_run:
+            results = run_reconcile(conn, auto_threshold=args.auto_threshold)
+            promoted = sum(1 for r in results if r.get("action") == "AUTO_PROMOTED")
+            flagged = sum(1 for r in results if r.get("action") == "FLAGGED_FOR_REVIEW")
+            log.info(
+                "Reconcile complete: auto_promoted=%d flagged_for_review=%d",
+                promoted,
+                flagged,
+            )
+            if flagged > 0:
+                log.warning(
+                    "%d candidates need human review. "
+                    "Run: SELECT accept_sql FROM stg.v_candidates_pending_human_review;",
+                    flagged,
+                )
+
     finally:
         conn.close()
 
