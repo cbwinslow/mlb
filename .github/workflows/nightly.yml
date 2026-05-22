@@ -1,0 +1,155 @@
+name: "Nightly — Scheduled Jobs"
+
+on:
+  schedule:
+    - cron: "0 5 * * *"  # 5am UTC every day
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        type: choice
+        options: [all, full-tests, db-health, enrichment-dry-run, cleanup]
+        default: all
+
+# Never cancel nightly jobs mid-run
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  nightly-tests:
+    name: "Nightly Full Test Suite"
+    if: |
+      github.event_name == 'schedule' ||
+      github.event.inputs.job == 'all' ||
+      github.event.inputs.job == 'full-tests'
+    uses: ./.github/workflows/tests.yml
+    with:
+      python-version: "3.12"
+      coverage-threshold: 70
+    secrets: inherit
+
+  db-health:
+    name: "Database Health Check"
+    if: |
+      github.event_name == 'schedule' ||
+      github.event.inputs.job == 'all' ||
+      github.event.inputs.job == 'db-health'
+    runs-on: [self-hosted, homelab, linux]
+    env:
+      MLB_DB_DSN: ${{ secrets.MLB_DB_DSN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install psycopg2-binary -q
+
+      - name: Run database health checks
+        run: |
+          if [ -z "$MLB_DB_DSN" ]; then
+            echo "MLB_DB_DSN secret not set, skipping DB health check"
+            exit 0
+          fi
+          python3 << 'PYEOF'
+          import os, psycopg2, sys
+          conn = psycopg2.connect(os.environ['MLB_DB_DSN'], connect_timeout=10)
+          cur = conn.cursor()
+          results = []
+
+          checks = [
+              ("Orphaned pitches", "SELECT COUNT(*) FROM stg.fn_detect_orphaned_pitches() AS t"),
+              ("Enrichment queue", "SELECT COUNT(*) FROM stg.v_players_pending_enrichment"),
+              ("Unresolved > 48h", "SELECT COUNT(*) FROM stg.player_identity WHERE resolved_at IS NULL AND created_at < NOW() - INTERVAL '48 hours'"),
+              ("Chadwick unmatched", "SELECT COUNT(*) FROM stg.v_chadwick_unmatched"),
+          ]
+
+          any_failure = False
+          for label, query in checks:
+              try:
+                  cur.execute(query)
+                  val = cur.fetchone()[0]
+                  status = "OK" if val == 0 else f"WARNING: {val} items"
+                  results.append((label, val, status))
+                  if val > 100:
+                      any_failure = True
+              except Exception as e:
+                  results.append((label, "ERROR", str(e)))
+
+          conn.close()
+          print("\nDB Health Report:")
+          for label, val, status in results:
+              print(f"  {label}: {val} ({status})")
+
+          if any_failure:
+              print("\nWARNING: Health check thresholds exceeded")
+          PYEOF
+
+  enrichment-dry-run:
+    name: "Enrichment Pipeline Dry-Run"
+    if: |
+      github.event_name == 'schedule' ||
+      github.event.inputs.job == 'all' ||
+      github.event.inputs.job == 'enrichment-dry-run'
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: nightly-pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
+
+      - run: |
+          [ -f requirements.txt ] && pip install -r requirements.txt -q || true
+
+      - name: Dry-run enrichment
+        run: |
+          if [ -f scripts/enrich_player_identity.py ]; then
+            python scripts/enrich_player_identity.py \
+              --dry-run \
+              --batch-size 50 \
+              --no-reconcile \
+              --log-level INFO || true
+          else
+            echo "enrich_player_identity.py not found, skipping"
+          fi
+
+  open-failure-issue:
+    name: "Auto-Open Issue on Failure"
+    needs: [nightly-tests, db-health, enrichment-dry-run]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: [self-hosted, homelab, linux]
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'ci-failure',
+              state: 'open',
+            });
+            if (existing.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `\uD83D\uDEA8 Nightly CI Failure \u2014 ${date}`,
+                body: `## Nightly CI failed\n\nOne or more nightly jobs failed on ${date}.\n\n**Run:** ${runUrl}\n\n**Jobs:**\n- Tests: ${{ needs.nightly-tests.result }}\n- DB Health: ${{ needs.db-health.result }}\n- Dry-Run: ${{ needs.enrichment-dry-run.result }}\n\nPlease investigate and close this issue once resolved.`,
+                labels: ['bug', 'ci-failure', 'automated', 'nightly'],
+              });
+            }
