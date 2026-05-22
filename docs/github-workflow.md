@@ -1,7 +1,7 @@
 # GitHub Workflow and Project Practices
 
 This document describes how we use GitHub features for the MLB analytics platform repository.
-It builds on the SQL-first architecture and is meant to keep contributions organized and observable.[cite:2]
+It builds on the SQL-first architecture and is meant to keep contributions organized and observable.
 
 ## Issues and milestones
 
@@ -29,7 +29,7 @@ Milestones should reflect meaningful platform increments. Suggested initial mile
 
 - **v0.2 – Ingestion & Registry**
   - First source ingestion worker accessible via CLI.
-  - Basic `ml.problemdefinition` / `ml.modeldefinition` flows via Python layer.[cite:2]
+  - Basic `ml.problemdefinition` / `ml.modeldefinition` flows via Python layer.
 
 - **v0.3 – First E2E Model**
   - Feature snapshot creation.
@@ -58,12 +58,113 @@ See the individual template files for details.
 
 ## Continuous Integration (CI)
 
-Current workflows (see `.github/workflows/`):[cite:9]
+All CI workflows live in `.github/workflows/`. The full current workflow inventory is:
 
-- `sql-ci.yml` – runs SQL-related checks and tests.
-- `python-ci.yml` – runs Python packaging checks and basic CLI sanity tests (added with the Python app layer).
+| Workflow | Trigger | Purpose | Runner |
+|---|---|---|---|
+| `ci.yml` | push / PR to `main` | Combined fast gate: package install + import smoke | `ubuntu-latest` |
+| `python-ci.yml` | push to `main`/`feature/*`, PR | Python lint (Ruff), type check (Mypy), pytest, coverage | `ubuntu-latest` |
+| `sql-ci.yml` | SQL/docs file changes, PR | DB bootstrap via `scripts/bootstrap_db.sh`, pgTAP SQL tests | `ubuntu-latest` |
+| `aider_ci_autofix.yml` | Issue labeled `aider` | Aider AI autofix on labeled issues | `ubuntu-latest` |
+| `gemini_autofix.yml` | Issue / PR event | Gemini AI autofix | `ubuntu-latest` |
+| `gemini_pr_review.yml` | PR opened/updated | Gemini automated code review | `ubuntu-latest` |
+| `openrouter_review.yml` | PR opened/updated | OpenRouter AI review | `ubuntu-latest` |
+| `auto_issue_creation.yml` | push to `main` | Auto-creates issues from TODOs/FIXMEs | `ubuntu-latest` |
+| `codebase_review.yml` | Manual / scheduled | Comprehensive AI codebase review | `ubuntu-latest` |
+| `issue_triage.yml` | Issue opened | Auto-label and triage new issues | `ubuntu-latest` |
+| `labeler.yml` | PR opened/updated | Auto-applies path-based labels to PRs | `ubuntu-latest` |
+| `pr-title.yml` | PR opened/updated | Enforces conventional commit title format | `ubuntu-latest` |
 
 The intention is to have all SQL and Python changes validated automatically on each push and pull request.
+
+### CI must-pass requirements
+
+Before any PR merges to `main`, the following must be green:
+- `ruff check .` — zero lint errors
+- `mypy baseball/` — zero type errors
+- `pytest tests/python/ --cov=baseball` — all tests pass, coverage target met
+- SQL bootstrap and pgTAP tests pass against a clean `postgres:16` container
+
+## Self-hosted runner
+
+This repository has a **self-hosted GitHub Actions runner** registered locally. It is used for:
+
+- Integration tests that require a live, persistent PostgreSQL instance (the homelab Postgres).
+- Heavy fixture-loading jobs (Chadwick full event file, Lahman full backfill) that exceed typical GitHub-hosted runner time limits.
+- Workflows where local filesystem access to data archives is needed.
+
+### Using the self-hosted runner in a workflow
+
+To route a job to the self-hosted runner, set:
+
+```yaml
+runs-on: [self-hosted, linux]
+```
+
+To run a job on both GitHub-hosted and self-hosted environments (e.g. for portability testing):
+
+```yaml
+strategy:
+  matrix:
+    runner: [ubuntu-latest, [self-hosted, linux]]
+runs-on: ${{ matrix.runner }}
+```
+
+### Runner maintenance
+
+- The runner process is managed as a systemd service on the homelab host.
+- Check runner status at: **Repository Settings → Actions → Runners**.
+- If the runner shows as offline, log into the homelab host and restart the service.
+- See `docs/local-runner.md` for full setup, registration, and maintenance instructions.
+
+## Package management with `uv`
+
+All Python dependency management uses **`uv`**. Do not use `pip install` directly in workflows or local dev.
+
+### Installing the project locally
+
+```bash
+# Install all runtime deps
+uv sync
+
+# Install runtime + dev deps (for testing, linting)
+uv sync --group dev
+
+# Run any tool through uv
+uv run pytest
+uv run ruff check .
+uv run mypy baseball/
+```
+
+### In GitHub Actions workflows
+
+```yaml
+- name: Install uv
+  uses: astral-sh/setup-uv@v3
+  with:
+    version: "latest"
+
+- name: Install project + dev deps
+  run: uv sync --group dev
+
+- name: Run tests
+  run: uv run pytest tests/python/ --cov=baseball --cov-report=xml
+```
+
+Do not use `actions/setup-python` + `pip install` for new workflows — use `astral-sh/setup-uv` instead.
+
+## Testing workflow
+
+See `docs/testing.md` for the comprehensive test guide. The short version:
+
+- **Python tests**: `uv run pytest tests/python/ -v --cov=baseball`
+- **SQL unit tests** (pgTAP): `pg_prove -d mlb_dev tests/sql/unit/`
+- **SQL integration tests**: `pg_prove -d mlb_dev tests/sql/integration/`
+- **SQL bootstrap smoke**: `psql -d mlb_dev -f tests/sql/bootstrap/001_smoke.sql`
+- **Lint**: `uv run ruff check . && uv run ruff format --check .`
+- **Type check**: `uv run mypy baseball/`
+
+Test output, coverage reports, and pgTAP TAP output are all uploaded as CI artifacts.
 
 ## Projects and triage
 
@@ -87,7 +188,7 @@ This workflow helps keep changes visible across ingestion, modeling, and operati
 
 ## Security and access
 
-The `docs/security.md` file describes workspace, role, and row-level security in the database.[cite:2]
+The `docs/security.md` file describes workspace, role, and row-level security in the database.
 
 At the GitHub level:
 
