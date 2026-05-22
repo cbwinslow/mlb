@@ -247,37 +247,6 @@ Retrosheet player IDs and biographical attributes for all players back to 1871.
 
 **What it is:** A community-maintained CSV that maps player IDs across MLB,
 FanGraphs, Baseball-Reference, and other fantasy platforms. This is the
-underlying data source for `pybaseball.playerid_lookup()`.
-
-**URL:** https://www.smartfantasybaseball.com/tools/playerid-map/  
-**Update cadence:** Near-weekly during the season  
-
-**Where it fits in the pipeline:**
-- Accessed indirectly via `pybaseball.playerid_lookup()` — no direct download
-  needed.
-- Useful as a manual reference when automated lookup fails and you need to
-  cross-check IDs in a browser.
-
----
-
-## Confidence Score Reference
-
-| Resolution Method | Confidence Score | Auto-Promoted? | Notes |
-|---|---|---|---|
-| Chadwick seed (direct MLBAM match) | 0.85 | Yes | Bulk seed, most historical players |
-| MLB StatsAPI xrefId | 0.90 | Yes | Best for modern players |
-| Chadwick DB lookup (MLBAM confirmed) | 0.85 | Yes | Post-seed single-player lookup |
-| pybaseball (MLBAM confirmed) | 0.80 | No* | Written as candidate; reconciled |
-| Chadwick name match | 0.65 | No | No MLBAM in Chadwick; name only |
-| pybaseball (name only, unconfirmed) | 0.60 | No | Manual review required |
-| Auto-inserted placeholder | 0.00 | No | Pending enrichment |
-
-*pybaseball at 0.80 is below the default auto-promote threshold of 0.85.
-Candidates at this score go to `stg.v_candidates_pending_human_review`.
-Adjust `--auto-threshold` in the enrichment worker to change this behaviour.
-
----
-
 ## Weekly Maintenance Checklist
 
 Run this checklist after each Chadwick weekly release (typically Tuesday):
@@ -301,7 +270,9 @@ psql $MLB_DB_DSN -c \
   "SELECT * FROM stg.fn_chadwick_divergence_report() WHERE divergence_type != 'OK'"
 
 # 5. Review human review queue (low-confidence candidates)
-psql $MLB_DB_DSN -c "SELECT player_identity_id, candidate_name, candidate_score, accept_sql FROM stg.v_candidates_pending_human_review;"
+psql $MLB_DB_DSN -c \
+  "SELECT player_identity_id, candidate_name, candidate_score, accept_sql \
+   FROM stg.v_candidates_pending_human_review"
 
 # 6. Check for unmatched Chadwick entries (net-new players not yet in stg)
 psql $MLB_DB_DSN -c \
@@ -310,7 +281,6 @@ psql $MLB_DB_DSN -c \
 # 7. Check orphaned pitches (should always be zero)
 psql $MLB_DB_DSN -c \
   "SELECT COUNT(*) FROM stg.fn_detect_orphaned_pitches()"
-```
 
 ### Interpreting Results
 
