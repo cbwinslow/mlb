@@ -1,6 +1,7 @@
 # Data Ingestion Guide
 
-This document describes the data ingestion architecture and available sources for the MLB Analytics Platform.
+This document is a quick-start reference for ingestion CLI usage and source endpoints.
+For the full ingestion architecture — lifecycle stages, control tables, chunking strategy, live ingestion model, and player identity integration — see [`docs/ingestion.md`](ingestion.md).
 
 ## Ingestion Priority (Phase 1)
 
@@ -8,6 +9,16 @@ This document describes the data ingestion architecture and available sources fo
 2. **Retrosheet** — Historical game logs, event files (free, CSV/text)
 3. **Statcast via pybaseball** — Pitch-by-pitch data (free, CSV via Baseball Savant)
 4. **Baseball Reference** — Season stats tables (scraping, use sparingly)
+
+## Before First Statcast Ingest — Seed Player Identities
+
+Before loading any Statcast data, seed `stg.player_identity` from the Chadwick Bureau Register. This pre-resolves historical player identities so the auto-insert trigger only needs to handle genuine new debuts:
+
+```bash
+python scripts/enrich_player_identity.py --mode=seed-chadwick
+```
+
+See [`docs/external-tools.md`](external-tools.md) for the full weekly maintenance checklist and [`docs/player_identity_design.md`](player_identity_design.md) for the complete identity pipeline design.
 
 ## Folder Structure
 
@@ -29,6 +40,7 @@ Base URL: `https://statsapi.mlb.com/api/v1/`
 Key endpoints:
 - `/teams` — all MLB teams
 - `/people/{personId}` — player details
+- `/people/{personId}?hydrate=xrefIds` — player + cross-source IDs (Retrosheet, Lahman, etc.)
 - `/schedule?sportId=1&date=YYYY-MM-DD` — daily schedule
 - `/game/{gamePk}/boxscore` — full boxscore
 
@@ -52,6 +64,8 @@ data = statcast(start_dt="2023-04-01", end_dt="2023-04-07")
 ```
 
 Rate-limit: ~1 request/second to be respectful.
+
+**Note:** Every Statcast pitch row carries `batter` and `pitcher` MLBAM IDs. A database trigger automatically creates identity placeholders for any unseen player. Run the enrichment worker after bulk loads to resolve those placeholders.
 
 ## Ingestion CLI (Planned)
 

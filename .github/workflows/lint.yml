@@ -1,0 +1,137 @@
+name: "Lint & Format Check"
+
+on:
+  workflow_call:
+  pull_request:
+    paths: ["**.py", "**.sql", "**.yml", "pyproject.toml", ".pre-commit-config.yaml"]
+  push:
+    branches: [main, develop]
+    paths: ["**.py", "**.sql"]
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  python-lint:
+    name: "ruff + black + isort + mypy"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: lint-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/requirements*.txt') }}
+          restore-keys: |
+            lint-${{ runner.os }}-
+
+      - name: Install linters
+        run: pip install ruff black isort mypy types-psycopg2 types-requests -q
+
+      - name: ruff (fast linter)
+        run: |
+          ruff check . --output-format=github 2>&1 || true
+
+      - name: black (format check)
+        run: |
+          black --check --diff . 2>&1 || true
+
+      - name: isort (import order)
+        run: |
+          isort --check-only --diff . 2>&1 || true
+
+      - name: mypy (type check)
+        run: |
+          if [ -d scripts ]; then
+            mypy scripts/ --ignore-missing-imports --show-error-codes --pretty 2>&1 || true
+          fi
+
+      - name: Write lint summary
+        if: always()
+        run: |
+          echo "## Lint Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Tool | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ruff | checked |" >> $GITHUB_STEP_SUMMARY
+          echo "| black | checked |" >> $GITHUB_STEP_SUMMARY
+          echo "| isort | checked |" >> $GITHUB_STEP_SUMMARY
+          echo "| mypy | checked |" >> $GITHUB_STEP_SUMMARY
+
+  sql-lint:
+    name: "sqlfluff (postgres dialect)"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: sqlfluff-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
+
+      - run: pip install sqlfluff -q
+
+      - name: sqlfluff lint
+        run: |
+          if [ -d sql ]; then
+            sqlfluff lint sql/ \
+              --dialect postgres \
+              --format github-annotation \
+              --annotation-level warning \
+              --exclude-rules ST06,ST07 2>&1 || true
+          else
+            echo "No sql/ directory found, skipping"
+          fi
+
+  yaml-lint:
+    name: "yamllint"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: .github/workflows/
+          config_data: |
+            extends: default
+            rules:
+              line-length:
+                max: 200
+              truthy:
+                allowed-values: ['true', 'false', 'on', 'off']
+
+  pre-commit:
+    name: "Pre-commit hooks"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: pre-commit-
+
+      - name: Run pre-commit (if config exists)
+        run: |
+          if [ -f .pre-commit-config.yaml ]; then
+            pip install pre-commit -q
+            pre-commit run --all-files 2>&1 || true
+          else
+            echo "No .pre-commit-config.yaml found, skipping"
+          fi

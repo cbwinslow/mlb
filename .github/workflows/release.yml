@@ -1,0 +1,69 @@
+name: "Release — Changelog & Publish"
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v1.2.3)"
+        required: true
+      prerelease:
+        description: "Mark as pre-release?"
+        required: false
+        default: "false"
+        type: boolean
+
+# Never cancel a release run in progress
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  pre-release-tests:
+    name: "Pre-release Tests (must pass)"
+    uses: ./.github/workflows/tests.yml
+    with:
+      python-version: "3.12"
+      coverage-threshold: 80
+    secrets: inherit
+
+  release:
+    name: "Create GitHub Release"
+    needs: pre-release-tests
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build changelog from commits
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          RANGE="${PREV:+${PREV}..HEAD}"
+          {
+            echo "## What's Changed"
+            echo ""
+            FEATS=$(git log ${RANGE:-HEAD} --pretty="- %s (%h)" --no-merges | grep -i "^- feat" || true)
+            FIXES=$(git log ${RANGE:-HEAD} --pretty="- %s (%h)" --no-merges | grep -i "^- fix" || true)
+            SQL=$(git log ${RANGE:-HEAD} --pretty="- %s (%h)" --no-merges | grep -i "^- sql" || true)
+            TESTS=$(git log ${RANGE:-HEAD} --pretty="- %s (%h)" --no-merges | grep -i "^- test" || true)
+            CI=$(git log ${RANGE:-HEAD} --pretty="- %s (%h)" --no-merges | grep -i "^- ci" || true)
+            [ -n "$FEATS" ] && echo "### ✨ New Features" && echo "$FEATS"
+            [ -n "$FIXES" ] && echo "### 🐛 Bug Fixes" && echo "$FIXES"
+            [ -n "$SQL" ] && echo "### 🗃️ Database Changes" && echo "$SQL"
+            [ -n "$TESTS" ] && echo "### 🧪 Tests" && echo "$TESTS"
+            [ -n "$CI" ] && echo "### ⚙️ CI/CD" && echo "$CI"
+          } > CHANGELOG_RELEASE.md
+          cat CHANGELOG_RELEASE.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          body_path: CHANGELOG_RELEASE.md
+          generate_release_notes: true
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          make_latest: ${{ github.event.inputs.prerelease != 'true' }}

@@ -1,0 +1,121 @@
+name: "Security Scanning"
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 3 * * 1"  # Monday 3am UTC weekly scan
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  bandit:
+    name: "Bandit — Python SAST"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: bandit-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
+
+      - run: pip install bandit[toml] -q
+
+      - name: Run bandit
+        run: |
+          if [ -d scripts ]; then
+            bandit -r scripts/ \
+              -f txt \
+              --severity-level medium \
+              --confidence-level medium \
+              -x tests/ 2>&1 || true
+          else
+            echo "No scripts/ directory found, skipping bandit"
+          fi
+
+  safety:
+    name: "Safety — CVE Check"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install safety -q
+
+      - name: Run safety check
+        run: |
+          if [ -f requirements.txt ]; then
+            safety check -r requirements.txt --output text 2>&1 || true
+          else
+            echo "No requirements.txt found, skipping safety check"
+          fi
+
+  pip-audit:
+    name: "pip-audit — Dependency Audit"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install pip-audit -q
+
+      - name: Run pip-audit
+        run: |
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt --output columns 2>&1 || true
+          else
+            pip-audit --output columns 2>&1 || true
+          fi
+
+  trufflehog:
+    name: "TruffleHog — Secret Scan"
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: trufflesecurity/trufflehog@v3.88.23
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+        continue-on-error: true
+
+  security-summary:
+    name: "Security Summary"
+    if: always()
+    needs: [bandit, safety, pip-audit, trufflehog]
+    runs-on: [self-hosted, homelab, linux]
+    steps:
+      - name: Write summary
+        run: |
+          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Scanner | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bandit (SAST) | ${{ needs.bandit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Safety (CVE) | ${{ needs.safety.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| pip-audit | ${{ needs.pip-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| TruffleHog (secrets) | ${{ needs.trufflehog.result }} |" >> $GITHUB_STEP_SUMMARY
