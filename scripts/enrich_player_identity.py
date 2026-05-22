@@ -8,9 +8,8 @@ Reads stg.v_players_pending_enrichment from the database, attempts to resolve
 cross-source player IDs using the following priority chain:
 
   1. MLB Stats API  xrefId endpoint        (confidence 0.90)  — best for modern players
-  2. pybaseball     playerid_lookup()       (confidence 0.80)  — name-based lookup
-  3. Chadwick       raw.chadwick_register   (confidence 0.85)  — direct DB lookup
-  4. Name fuzzy     pg_trgm similarity      (confidence 0.55)  — last-resort heuristic
+  2. Chadwick       raw.chadwick_register   (confidence 0.85 exact, 0.65 name-match)  — direct DB lookup
+  3. pybaseball     playerid_lookup()       (confidence 0.80 confirmed, 0.60 unconfirmed)  — name-based lookup
 
 For each player resolved, writes a candidate row to stg.player_identity_candidate.
 After processing the batch, calls stg.fn_reconcile_candidates() which auto-promotes
@@ -39,14 +38,12 @@ Dependencies:
 from __future__ import annotations
 
 import argparse
-import csv
-import io
 import json
 import logging
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -60,13 +57,7 @@ try:
     PYBASEBALL_AVAILABLE = True
 except ImportError:
     PYBASEBALL_AVAILABLE = False
-    logging.warning("pybaseball not installed — name-lookup fallback disabled")
 
-try:
-    from rapidfuzz import fuzz
-    RAPIDFUZZ_AVAILABLE = True
-except ImportError:
-    RAPIDFUZZ_AVAILABLE = False
 
 try:
     from dotenv import load_dotenv
@@ -83,16 +74,30 @@ MLB_STATS_API_BASE = os.getenv("MLB_STATS_API_BASE", "https://statsapi.mlb.com")
 DB_DSN = os.getenv("MLB_DB_DSN", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
+
+class JSONFormatter(logging.Formatter):
+    """Custom JSON formatter that properly escapes messages and serializes log records."""
+    def format(self, record: logging.LogRecord) -> str:
+        log_obj = {
+            "time": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "msg": record.getMessage(),
+        }
+        return json.dumps(log_obj)
+
+
+# Configure logging with JSON formatter
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(JSONFormatter())
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format=json.dumps({
-        "time": "%(asctime)s",
-        "level": "%(levelname)s",
-        "msg": "%(message)s",
-    }),
-    stream=sys.stdout,
+    handlers=[handler],
 )
 log = logging.getLogger(__name__)
+
+# Emit warnings after logging is configured
+if not PYBASEBALL_AVAILABLE:
+    log.warning("pybaseball not installed — name-lookup fallback disabled")
 
 
 # ---------------------------------------------------------------------------
@@ -193,10 +198,26 @@ def write_candidate(
             )
             ON CONFLICT (mlbam_player_id, source_system_code)
             DO UPDATE SET
-                retrosheet_player_id = EXCLUDED.retrosheet_player_id,
-                bbref_player_id      = EXCLUDED.bbref_player_id,
-                fangraphs_player_id  = EXCLUDED.fangraphs_player_id,
-                lahman_player_id     = EXCLUDED.lahman_player_id,
+                retrosheet_player_id = CASE
+                    WHEN EXCLUDED.candidate_score > stg.player_identity_candidate.candidate_score
+                    THEN EXCLUDED.retrosheet_player_id
+                    ELSE COALESCE(stg.player_identity_candidate.retrosheet_player_id, EXCLUDED.retrosheet_player_id)
+                END,
+                bbref_player_id = CASE
+                    WHEN EXCLUDED.candidate_score > stg.player_identity_candidate.candidate_score
+                    THEN EXCLUDED.bbref_player_id
+                    ELSE COALESCE(stg.player_identity_candidate.bbref_player_id, EXCLUDED.bbref_player_id)
+                END,
+                fangraphs_player_id = CASE
+                    WHEN EXCLUDED.candidate_score > stg.player_identity_candidate.candidate_score
+                    THEN EXCLUDED.fangraphs_player_id
+                    ELSE COALESCE(stg.player_identity_candidate.fangraphs_player_id, EXCLUDED.fangraphs_player_id)
+                END,
+                lahman_player_id = CASE
+                    WHEN EXCLUDED.candidate_score > stg.player_identity_candidate.candidate_score
+                    THEN EXCLUDED.lahman_player_id
+                    ELSE COALESCE(stg.player_identity_candidate.lahman_player_id, EXCLUDED.lahman_player_id)
+                END,
                 candidate_score      = GREATEST(
                     stg.player_identity_candidate.candidate_score,
                     EXCLUDED.candidate_score
@@ -218,7 +239,6 @@ def write_candidate(
                 "source": candidate.source_system_code,
             },
         )
-    conn.commit()
 
 
 def run_reconcile(
@@ -325,8 +345,9 @@ def resolve_via_pybaseball(full_name: Optional[str], mlbam_id: int) -> Optional[
     if len(parts) < 2:
         return None
 
-    last = parts[-1]
+    # Treat first token as given name, rest as surname (handles compound surnames)
     first = parts[0]
+    last = " ".join(parts[1:])
 
     try:
         result = pybaseball.playerid_lookup(last, first, fuzzy=False)
@@ -488,10 +509,11 @@ def resolve_player(
     conn: psycopg2.extensions.connection,
     player: PendingPlayer,
     min_confidence: float = 0.50,
-) -> Optional[ResolvedCandidate]:
+) -> tuple[Optional[ResolvedCandidate], bool]:
     """
     Run the full priority resolution chain for a single player.
-    Returns the best candidate found, or None if nothing meets min_confidence.
+    Returns (candidate, used_statsapi) tuple where used_statsapi indicates
+    whether the MLB StatsAPI was called (for rate limiting sleep purposes).
     """
     # Priority 1: MLB Stats API (most authoritative for modern players)
     candidate = resolve_via_mlb_statsapi(player.mlbam_player_id)
@@ -501,7 +523,7 @@ def resolve_player(
             player.mlbam_player_id,
             candidate.candidate_score,
         )
-        return candidate
+        return candidate, True
 
     # Priority 2: Chadwick DB (best historical cross-reference)
     candidate = resolve_via_chadwick_db(conn, player.mlbam_player_id, player.full_name)
@@ -511,7 +533,7 @@ def resolve_player(
             player.mlbam_player_id,
             candidate.candidate_score,
         )
-        return candidate
+        return candidate, False
 
     # Priority 3: pybaseball name lookup
     if player.full_name:
@@ -522,7 +544,7 @@ def resolve_player(
                 player.mlbam_player_id,
                 candidate.candidate_score,
             )
-            return candidate
+            return candidate, False
 
     # All methods exhausted or confidence too low
     log.info(
@@ -531,7 +553,7 @@ def resolve_player(
         player.full_name,
         min_confidence,
     )
-    return None
+    return None, False
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +595,11 @@ def load_chadwick_csv(
                 f,
             )
         row_count = cur.rowcount
+        # Handle psycopg2 versions where rowcount is -1 after COPY
+        if row_count == -1:
+            cur.execute("SELECT COUNT(*) AS cnt FROM raw.chadwick_register")
+            result = cur.fetchone()
+            row_count = result["cnt"] if result else 0
     conn.commit()
     log.info("Loaded %d rows into raw.chadwick_register", row_count)
     return row_count
@@ -612,15 +639,10 @@ def parse_args() -> argparse.Namespace:
         help="Confidence threshold for auto-promotion in fn_reconcile_candidates (default: 0.85)",
     )
     parser.add_argument(
-        "--reconcile-after",
-        action="store_true",
-        default=True,
-        help="Call fn_reconcile_candidates() after writing all candidates (default: True)",
-    )
-    parser.add_argument(
         "--no-reconcile",
         dest="reconcile_after",
         action="store_false",
+        default=True,
         help="Skip fn_reconcile_candidates() call at end of run",
     )
     parser.add_argument(
@@ -675,9 +697,10 @@ def main() -> None:
 
         resolved = 0
         unresolved = 0
+        BATCH_COMMIT_SIZE = 50  # Commit every N rows
 
-        for player in players:
-            candidate = resolve_player(
+        for idx, player in enumerate(players, start=1):
+            candidate, used_statsapi = resolve_player(
                 conn=conn,
                 player=player,
                 min_confidence=args.min_confidence,
@@ -689,9 +712,17 @@ def main() -> None:
             else:
                 unresolved += 1
 
-            # Polite sleep between API calls
-            if args.sleep_ms > 0:
+            # Polite sleep only after StatsAPI calls to respect rate limits
+            if used_statsapi and args.sleep_ms > 0:
                 time.sleep(args.sleep_ms / 1000.0)
+
+            # Periodic batch commit
+            if not args.dry_run and idx % BATCH_COMMIT_SIZE == 0:
+                conn.commit()
+
+        # Final commit for remaining writes
+        if not args.dry_run:
+            conn.commit()
 
         log.info(
             "Enrichment batch complete: resolved=%d unresolved=%d",

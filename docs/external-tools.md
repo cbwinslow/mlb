@@ -69,7 +69,7 @@ curl -L -o /tmp/chadwick_people.csv \
 **Load and seed:**
 ```bash
 psql $MLB_DB_DSN -c "TRUNCATE TABLE raw.chadwick_register"
-psql $MLB_DB_DSN -c "\COPY raw.chadwick_register (...columns...) FROM '/tmp/chadwick_people.csv' CSV HEADER"
+psql $MLB_DB_DSN -c "\COPY raw.chadwick_register (key_person, key_uuid, key_mlbam, key_retro, key_bbref, key_bbref_minors, key_fangraphs, key_npb, key_sr_nfl, key_sr_nba, key_sr_nhl, key_findagrave, key_lahman, name_last, name_first, name_given, name_suffix, name_matrilineal, name_nick, birth_year, birth_month, birth_day, death_year, death_month, death_day, pro_played_first, pro_played_last, mlb_played_first, mlb_played_last, col_played_first, col_played_last, pro_managed_first, pro_managed_last, pro_umpired_first, pro_umpired_last) FROM '/tmp/chadwick_people.csv' CSV HEADER"
 psql $MLB_DB_DSN -c "SELECT * FROM stg.fn_refresh_chadwick()"
 ```
 
@@ -135,6 +135,8 @@ pip install python-mlb-statsapi
 import statsapi
 result = statsapi.lookup_player('trout')  # name search
 person = statsapi.get('people', {'personIds': 545361, 'hydrate': 'xrefIds'})
+# Note: The Python client uses plural 'personIds' as a query parameter,
+# while the REST API route uses singular '/people/{personId}' in the path.
 ```
 
 ---
@@ -299,9 +301,7 @@ psql $MLB_DB_DSN -c \
   "SELECT * FROM stg.fn_chadwick_divergence_report() WHERE divergence_type != 'OK'"
 
 # 5. Review human review queue (low-confidence candidates)
-psql $MLB_DB_DSN -c \
-  "SELECT player_identity_id, candidate_name, candidate_score, accept_sql \
-   FROM stg.v_candidates_pending_human_review"
+psql $MLB_DB_DSN -c "SELECT player_identity_id, candidate_name, candidate_score, accept_sql FROM stg.v_candidates_pending_human_review;"
 
 # 6. Check for unmatched Chadwick entries (net-new players not yet in stg)
 psql $MLB_DB_DSN -c \
@@ -311,6 +311,49 @@ psql $MLB_DB_DSN -c \
 psql $MLB_DB_DSN -c \
   "SELECT COUNT(*) FROM stg.fn_detect_orphaned_pitches()"
 ```
+
+### Interpreting Results
+
+**Health Report (step 3):**
+The function `stg.fn_full_identity_health_report()` returns a JSONB document with keys:
+- `orphaned_pitches_48h` — pitch count missing player_identity_id links
+- `critical_alert` — boolean; true if immediate action required
+- `needs_manual_review` — count of candidates awaiting human review
+- `candidates_pending_human` — detailed candidate queue size
+- `chadwick_divergences` — count of ID mismatches vs. Chadwick
+- `id_completeness` — percentage of live players with full cross-source IDs
+
+Treat as a failure if `critical_alert` is true or `orphaned_pitches_48h > 0`. Proceed to divergence checks and remediation. The function logs each run to `stg.player_identity_resolution_log` for audit.
+
+**Chadwick Divergence Report (step 4):**
+Rows with `divergence_type != 'OK'` indicate our database IDs differ from Chadwick's current release. Common divergence types: `retrosheet_mismatch`, `bbref_mismatch`, `fangraphs_mismatch`, `lahman_mismatch`.
+
+- If the divergence is recent (Chadwick's weekly update corrected an error), run the `suggested_action` SQL provided in the report to accept the Chadwick value.
+- If the stored value is known-good (e.g., manually verified), escalate to investigate why Chadwick differs or open a Chadwick Bureau issue.
+
+**Human Review Queue (step 5):**
+`stg.v_candidates_pending_human_review` lists low-confidence candidates (<0.85 by default) awaiting approval. Each row includes:
+- `candidate_score` — confidence level (0.00–1.00)
+- `accept_sql` — ready-to-run SQL to promote the candidate
+
+Review each candidate's biographical data and external links. If correct, copy and run the `accept_sql`. To reject, delete the row from `stg.player_identity_candidate` or mark `accepted_flag = FALSE`.
+
+**Chadwick Unmatched (step 6):**
+`stg.v_chadwick_unmatched` shows players in Chadwick with valid MLBAM IDs but no row in `stg.player_identity`. Expected for players who have not yet appeared in Statcast data (e.g., newly signed minor leaguers, historical players with no modern pitch data). If a currently active player appears here, run `SELECT stg.fn_seed_from_chadwick()` to insert them. Persistent unmatched entries for active players may indicate a missing Statcast trigger or MLBAM ID mismatch.
+
+**Orphaned Pitches (step 7):**
+If `stg.fn_detect_orphaned_pitches()` returns >0 rows, investigate immediately:
+1. Check the output for `pitcher_id` or `batter_id` values with no `player_identity_id` link.
+2. Run `SELECT * FROM stg.v_players_pending_enrichment` to see if these players are queued for enrichment.
+3. If missing from the queue, manually insert a placeholder: `INSERT INTO stg.player_identity (mlbam_player_id, identity_confidence_score, identity_source) VALUES (<id>, 0.00, 'manual:orphan_repair') ON CONFLICT DO NOTHING;`
+4. Re-run the enrichment worker to resolve cross-source IDs.
+5. Open an incident if orphaned pitches persist after enrichment (may indicate a trigger failure or upstream data corruption).
+
+**When to Open an Issue:**
+- `critical_alert = true` and remediation steps fail to clear it within 24 hours.
+- Divergence report shows systematic mismatches (>10 players) that cannot be explained by Chadwick corrections.
+- Orphaned pitches persist after running enrichment worker and manual repair.
+- Unmatched Chadwick entries for players with recent Statcast appearances.
 
 ---
 

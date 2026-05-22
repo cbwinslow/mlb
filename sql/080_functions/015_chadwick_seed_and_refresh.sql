@@ -97,7 +97,34 @@ COMMENT ON TABLE raw.chadwick_register IS
 
 
 -- ---------------------------------------------------------------------------
--- 2. stg.fn_seed_from_chadwick
+-- 2. stg.safe_make_date — Helper function for defensive date construction
+--
+-- Creates a DATE from year/month/day integers, returning NULL on invalid dates
+-- (e.g., month=13, day=32) instead of raising an exception.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION stg.safe_make_date(
+    p_year  INT,
+    p_month INT,
+    p_day   INT
+)
+RETURNS DATE
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+    RETURN make_date(p_year, p_month, p_day);
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION stg.safe_make_date(INT, INT, INT) IS
+    'Defensive wrapper around make_date() that returns NULL for invalid dates instead of raising an exception.';
+
+
+-- ---------------------------------------------------------------------------
+-- 3. stg.fn_seed_from_chadwick
 --
 -- Upserts rows from raw.chadwick_register into stg.player_identity.
 --
@@ -134,11 +161,19 @@ DECLARE
 BEGIN
     FOR r IN
         SELECT
-            NULLIF(TRIM(c.key_mlbam), '')::BIGINT          AS mlbam_id,
-            NULLIF(TRIM(c.key_retro),      '')             AS retro_id,
-            NULLIF(TRIM(c.key_bbref),      '')             AS bbref_id,
-            NULLIF(TRIM(c.key_fangraphs),  '')::BIGINT     AS fangraphs_id,
-            NULLIF(TRIM(c.key_lahman),     '')             AS lahman_id,
+            CASE
+                WHEN NULLIF(TRIM(c.key_mlbam), '') ~ '^[0-9]+$'
+                THEN NULLIF(TRIM(c.key_mlbam), '')::BIGINT
+                ELSE NULL
+            END                                             AS mlbam_id,
+            NULLIF(TRIM(c.key_retro),      '')              AS retro_id,
+            NULLIF(TRIM(c.key_bbref),      '')              AS bbref_id,
+            CASE
+                WHEN NULLIF(TRIM(c.key_fangraphs), '') ~ '^[0-9]+$'
+                THEN NULLIF(TRIM(c.key_fangraphs), '')::BIGINT
+                ELSE NULL
+            END                                             AS fangraphs_id,
+            NULLIF(TRIM(c.key_lahman),     '')              AS lahman_id,
             TRIM(CONCAT_WS(' ',
                 NULLIF(TRIM(c.name_first), ''),
                 NULLIF(TRIM(c.name_last),  '')
@@ -147,7 +182,7 @@ BEGIN
                 WHEN c.birth_year  ~ '^[0-9]{4}$'
                  AND c.birth_month ~ '^[0-9]{1,2}$'
                  AND c.birth_day   ~ '^[0-9]{1,2}$'
-                THEN make_date(
+                THEN stg.safe_make_date(
                     c.birth_year::INT,
                     c.birth_month::INT,
                     c.birth_day::INT
@@ -206,7 +241,11 @@ BEGIN
         ;
 
         IF FOUND THEN
-            -- Distinguish insert vs update via xmax heuristic
+            -- Distinguish insert vs update via xmax heuristic.
+            -- Note: xmax = 0 reliably indicates an insert only within the same transaction.
+            -- This heuristic could be racy if another session modifies the row between
+            -- INSERT and SELECT. We assume single-threaded execution (weekly batch or
+            -- single enrichment worker) with no concurrent writers to stg.player_identity.
             IF (SELECT xmax = 0 FROM stg.player_identity WHERE mlbam_player_id = r.mlbam_id LIMIT 1) THEN
                 v_inserted := v_inserted + 1;
             ELSE
@@ -244,11 +283,11 @@ COMMENT ON FUNCTION stg.fn_seed_from_chadwick(TEXT) IS
 
 
 -- ---------------------------------------------------------------------------
--- 3. stg.fn_refresh_chadwick
+-- 4. stg.fn_refresh_chadwick
 --
 -- Full weekly refresh pipeline:
---   1. Truncates raw.chadwick_register (expects caller to have already loaded
---      the new CSV via \COPY or Python psycopg2 COPY_FROM before calling).
+--   1. Expects caller to have truncated raw.chadwick_register and loaded
+--      the new CSV via \COPY or Python psycopg2 COPY_FROM before calling.
 --   2. Calls fn_seed_from_chadwick() to propagate changes to stg.player_identity.
 --   3. Logs the full result to stg.player_identity_resolution_log.
 --   4. Returns the seed summary.
@@ -284,9 +323,9 @@ $$;
 
 COMMENT ON FUNCTION stg.fn_refresh_chadwick() IS
     'Weekly Chadwick refresh pipeline. '
-    'Caller must load raw.chadwick_register from the latest people.csv first. '
+    'Caller must truncate and load raw.chadwick_register from the latest people.csv first. '
     'Calls fn_seed_from_chadwick() and returns a summary. '
-    'Typical cron: download people.csv -> COPY into raw.chadwick_register -> SELECT stg.fn_refresh_chadwick();';
+    'Typical cron: download people.csv -> TRUNCATE + COPY into raw.chadwick_register -> SELECT stg.fn_refresh_chadwick();';
 
 
 -- ---------------------------------------------------------------------------
@@ -358,27 +397,40 @@ COMMENT ON FUNCTION stg.fn_chadwick_divergence_report() IS
 -- will clear this view (all matched rows go to 0 rows).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW stg.v_chadwick_unmatched AS
+WITH valid_chadwick AS (
+    SELECT
+        c.key_mlbam::BIGINT     AS mlbam_player_id,
+        CONCAT_WS(' ',
+            NULLIF(TRIM(c.name_first), ''),
+            NULLIF(TRIM(c.name_last),  '')
+        )                        AS full_name,
+        c.key_retro             AS retrosheet_player_id,
+        c.key_bbref             AS bbref_player_id,
+        c.key_fangraphs         AS fangraphs_player_id,
+        c.key_lahman            AS lahman_player_id,
+        c.mlb_played_first,
+        c.mlb_played_last,
+        c.loaded_at
+    FROM raw.chadwick_register c
+    WHERE c.key_mlbam IS NOT NULL
+      AND c.key_mlbam <> ''
+      AND c.key_mlbam ~ '^[0-9]+$'
+)
 SELECT
-    c.key_mlbam::BIGINT     AS mlbam_player_id,
-    CONCAT_WS(' ',
-        NULLIF(TRIM(c.name_first), ''),
-        NULLIF(TRIM(c.name_last),  '')
-    )                        AS full_name,
-    c.key_retro             AS retrosheet_player_id,
-    c.key_bbref             AS bbref_player_id,
-    c.key_fangraphs         AS fangraphs_player_id,
-    c.key_lahman            AS lahman_player_id,
-    c.mlb_played_first,
-    c.mlb_played_last,
-    c.loaded_at
-FROM raw.chadwick_register c
+    vc.mlbam_player_id,
+    vc.full_name,
+    vc.retrosheet_player_id,
+    vc.bbref_player_id,
+    vc.fangraphs_player_id,
+    vc.lahman_player_id,
+    vc.mlb_played_first,
+    vc.mlb_played_last,
+    vc.loaded_at
+FROM valid_chadwick vc
 LEFT JOIN stg.player_identity pi
-    ON pi.mlbam_player_id = c.key_mlbam::BIGINT
-WHERE c.key_mlbam IS NOT NULL
-  AND c.key_mlbam  <> ''
-  AND c.key_mlbam  ~ '^[0-9]+$'
-  AND pi.player_identity_id IS NULL
-ORDER BY c.mlb_played_last DESC NULLS LAST;
+    ON pi.mlbam_player_id = vc.mlbam_player_id
+WHERE pi.player_identity_id IS NULL
+ORDER BY vc.mlb_played_last DESC NULLS LAST;
 
 COMMENT ON VIEW stg.v_chadwick_unmatched IS
     'Chadwick rows with a valid MLBAM id that have no match in stg.player_identity. '
