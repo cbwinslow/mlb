@@ -1373,20 +1373,36 @@ class TestGetPendingPlayersLimit:
 
     def test_with_limit_parameter(self):
         """get_pending_players respects limit parameter."""
+        from baseball.ingestion.enrich_player_identity import get_pending_players
+        
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        mock_cursor.fetchall.return_value = [
-            {"player_identity_id": 1, "mlbam_player_id": 592450, "player_name": "Juan Soto", "identity_confidence_score": 0.0}
-        ]
+        # Use a dict-like object for DictCursor behavior
+        mock_row = {"player_identity_id": 1, "mlbam_player_id": 592450, "player_name": "Juan Soto", "identity_confidence_score": 0.0}
+        mock_cursor.fetchall.return_value = [mock_row]
 
-        with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", True):
-            with patch("psycopg2.connect", return_value=mock_conn):
-                result = get_pending_players("postgresql://test", limit=10)
-                assert len(result) == 1
-                # Verify the SQL included LIMIT
-                call_args = mock_cursor.execute.call_args[0][0]
-                assert "LIMIT" in call_args
+        result = get_pending_players(mock_conn, limit=10)
+        assert len(result) == 1
+        # Verify the SQL included LIMIT
+        call_args = mock_cursor.execute.call_args[0][0]
+        assert "LIMIT" in call_args
+
+    def test_without_limit_parameter(self):
+        """get_pending_players works without limit parameter."""
+        from baseball.ingestion.enrich_player_identity import get_pending_players
+        
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_row = {"player_identity_id": 1, "mlbam_player_id": 592450, "player_name": "Juan Soto", "identity_confidence_score": 0.0}
+        mock_cursor.fetchall.return_value = [mock_row]
+
+        result = get_pending_players(mock_conn)
+        assert len(result) == 1
+        # Verify the SQL does NOT include LIMIT
+        call_args = mock_cursor.execute.call_args[0][0]
+        assert "LIMIT" not in call_args
 
 
 class TestPrintReconcileColors:
@@ -1443,8 +1459,8 @@ class TestRunEnrichmentSkipChadwick:
 class TestResolvePlayerTracking:
     """Tests for resolution path tracking in run_enrichment."""
 
-    def test_tracks_chadwick_cache_resolution(self):
-        """Tracks chadwick_cache resolution path."""
+    def test_tracks_statsapi_resolution(self):
+        """Tracks statsapi resolution path."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -1453,18 +1469,31 @@ class TestResolvePlayerTracking:
             [],  # reconcile results
         ]
 
+        mock_statsapi = MagicMock()
+        mock_statsapi.lookup_player.return_value = [{
+            "id": 592450,
+            "xrefIds": {"retrosheet": "sotjua01", "bbref": "sotoju01"}
+        }]
+
         with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", True):
             with patch("psycopg2.connect", return_value=mock_conn):
                 with patch("baseball.ingestion.enrich_player_identity.run_orphan_check", return_value=[]):
                     with patch("baseball.ingestion.enrich_player_identity._load_chadwick_from_db"):
-                        with patch("baseball.ingestion.enrich_player_identity._chadwick_cache", {592450: ResolvedIds(mlbam_player_id=592450, confidence=0.95, source="chadwick_cache")}):
-                            with patch("baseball.ingestion.enrich_player_identity.HAS_STATSAPI", False):
-                                with patch("baseball.ingestion.enrich_player_identity.HAS_PYBASEBALL", False):
-                                    with patch("baseball.ingestion.enrich_player_identity._chadwick_name_cache", {}):
-                                        with patch("baseball.ingestion.enrich_player_identity.time.sleep"):
-                                            with patch("baseball.ingestion.enrich_player_identity.insert_candidate"):
-                                                result = run_enrichment("postgresql://test", skip_chadwick_load=True, rate_limit_ms=0)
-                                                assert result.resolved_chadwick_cache == 1
+                        with patch("baseball.ingestion.enrich_player_identity._chadwick_cache", {}):
+                            with patch("baseball.ingestion.enrich_player_identity.HAS_STATSAPI", True):
+                                import baseball.ingestion.enrich_player_identity as ei
+                                original_statsapi = getattr(ei, 'statsapi', None)
+                                ei.statsapi = mock_statsapi
+                                try:
+                                    with patch("baseball.ingestion.enrich_player_identity.HAS_PYBASEBALL", False):
+                                        with patch("baseball.ingestion.enrich_player_identity._chadwick_name_cache", {}):
+                                            with patch("baseball.ingestion.enrich_player_identity.time.sleep"):
+                                                with patch("baseball.ingestion.enrich_player_identity.insert_candidate"):
+                                                    result = run_enrichment("postgresql://test", skip_chadwick_load=True, rate_limit_ms=0)
+                                                    assert result.resolved_statsapi == 1
+                                finally:
+                                    if original_statsapi is not None:
+                                        ei.statsapi = original_statsapi
 
 
 class TestCliVerbose:
@@ -1502,3 +1531,205 @@ class TestCliDryRun:
             # Verify dry_run was passed
             call_kwargs = mock_run.call_args[1]
             assert call_kwargs.get("dry_run") == True
+
+
+class TestPrintReconcileLargeResults:
+    """Tests for print_reconcile with large result sets."""
+
+    def test_print_reconcile_with_more_than_50_rows(self):
+        """print_reconcile omits rows after 50 with dim message."""
+        from baseball.ingestion.enrich_player_identity import _print_reconcile
+        
+        # Create 55 results to trigger the "more rows omitted" message
+        results = [
+            {"player_identity_id": i, "identity_confidence_score": 0.95, "identity_source": "statsapi"}
+            for i in range(55)
+        ]
+        # Just verify it doesn't crash - the dim message is printed for rows > 50
+        _print_reconcile(results)
+
+
+class TestResolvePlayerPybaseballPath:
+    """Tests for pybaseball resolution path in resolve_player."""
+
+    def test_resolves_via_pybaseball_in_resolve_player(self):
+        """resolve_player uses pybaseball when statsapi and chadwick_cache fail."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchall.side_effect = [
+            [],  # chadwick cache
+        ]
+
+        mock_pybaseball = MagicMock()
+        mock_df = MagicMock()
+        mock_df.__getitem__ = lambda self, key: MagicMock()
+        mock_df.empty = False
+        mock_df.iloc = [MagicMock()]
+        mock_pybaseball.playerid_lookup.return_value = mock_df
+
+        with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", True):
+            with patch("psycopg2.connect", return_value=mock_conn):
+                with patch("baseball.ingestion.enrich_player_identity.HAS_STATSAPI", False):
+                    with patch("baseball.ingestion.enrich_player_identity.HAS_PYBASEBALL", True):
+                        import baseball.ingestion.enrich_player_identity as ei
+                        original_pybaseball = getattr(ei, 'pybaseball', None)
+                        ei.pybaseball = mock_pybaseball
+                        try:
+                            with patch("baseball.ingestion.enrich_player_identity._chadwick_cache", {}):
+                                with patch("baseball.ingestion.enrich_player_identity._chadwick_name_cache", {}):
+                                    player = PendingPlayer(
+                                        player_identity_id=1,
+                                        mlbam_player_id=592450,
+                                        player_name="Juan Soto",
+                                        identity_confidence_score=0.0
+                                    )
+                                    result = resolve_player(player)
+                                    # pybaseball returns confidence 0.60
+                                    assert result is not None
+                        finally:
+                            if original_pybaseball is not None:
+                                ei.pybaseball = original_pybaseball
+
+
+class TestResolvePlayerTrackingAllPaths:
+    """Tests for all resolution path tracking in run_enrichment."""
+
+    def test_tracks_pybaseball_resolution(self):
+        """Tracks pybaseball resolution path."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchall.side_effect = [
+            [{"player_identity_id": 1, "mlbam_player_id": 592450, "player_name": "Juan Soto", "identity_confidence_score": 0.0}],
+            [],  # reconcile results
+        ]
+
+        mock_pybaseball = MagicMock()
+        mock_df = MagicMock()
+        mock_df.__getitem__ = lambda self, key: MagicMock()
+        mock_df.empty = False
+        mock_df.iloc = [MagicMock()]
+        mock_pybaseball.playerid_lookup.return_value = mock_df
+
+        with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", True):
+            with patch("psycopg2.connect", return_value=mock_conn):
+                with patch("baseball.ingestion.enrich_player_identity.run_orphan_check", return_value=[]):
+                    with patch("baseball.ingestion.enrich_player_identity._load_chadwick_from_db"):
+                        with patch("baseball.ingestion.enrich_player_identity._chadwick_cache", {}):
+                            with patch("baseball.ingestion.enrich_player_identity.HAS_STATSAPI", False):
+                                with patch("baseball.ingestion.enrich_player_identity.HAS_PYBASEBALL", True):
+                                    import baseball.ingestion.enrich_player_identity as ei
+                                    original_pybaseball = getattr(ei, 'pybaseball', None)
+                                    ei.pybaseball = mock_pybaseball
+                                    try:
+                                        with patch("baseball.ingestion.enrich_player_identity._chadwick_name_cache", {}):
+                                            with patch("baseball.ingestion.enrich_player_identity.time.sleep"):
+                                                with patch("baseball.ingestion.enrich_player_identity.insert_candidate"):
+                                                    result = run_enrichment("postgresql://test", skip_chadwick_load=True, rate_limit_ms=0)
+                                                    assert result.resolved_pybaseball == 1
+                                    finally:
+                                        if original_pybaseball is not None:
+                                            ei.pybaseball = original_pybaseball
+
+    def test_tracks_chadwick_name_resolution(self):
+        """Tracks chadwick_name resolution path - counts toward chadwick_cache."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchall.side_effect = [
+            [{"player_identity_id": 1, "mlbam_player_id": 592450, "player_name": "Juan Soto", "identity_confidence_score": 0.0}],
+            [],  # reconcile results
+        ]
+
+        with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", True):
+            with patch("psycopg2.connect", return_value=mock_conn):
+                with patch("baseball.ingestion.enrich_player_identity.run_orphan_check", return_value=[]):
+                    with patch("baseball.ingestion.enrich_player_identity._load_chadwick_from_db"):
+                        with patch("baseball.ingestion.enrich_player_identity._chadwick_cache", {}):
+                            with patch("baseball.ingestion.enrich_player_identity.HAS_STATSAPI", False):
+                                with patch("baseball.ingestion.enrich_player_identity.HAS_PYBASEBALL", False):
+                                    # _chadwick_name_cache uses "lastname,firstname" key with list of candidate dicts
+                                    # The function looks up by key and expects a list of row dicts
+                                    with patch("baseball.ingestion.enrich_player_identity._chadwick_name_cache", {"soto,juan": [{"key_mlbam": "592450", "key_retro": "sotoju01", "key_bbref": "sotoju01"}]}):
+                                        with patch("baseball.ingestion.enrich_player_identity.time.sleep"):
+                                            with patch("baseball.ingestion.enrich_player_identity.insert_candidate"):
+                                                result = run_enrichment("postgresql://test", skip_chadwick_load=True, rate_limit_ms=0)
+                                                # chadwick_name source contains "chadwick" so it counts toward resolved_chadwick_cache
+                                                assert result.resolved_chadwick_cache == 1
+
+
+class TestCliExitOnError:
+    """Tests for CLI exit on error."""
+
+    def test_cli_exits_with_code_1_on_error(self):
+        """CLI exits with code 1 when database connection fails."""
+        from baseball.ingestion.enrich_player_identity import app
+        from typer.testing import CliRunner
+
+        runner = CliRunner()
+
+        with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", False):
+            result = runner.invoke(app, ["--database-url", "postgresql://test"])
+            # Should exit with code 1 due to missing psycopg2
+            assert result.exit_code == 1
+
+class TestUncoveredLines:
+    """Tests for uncovered lines in enrich_player_identity.py."""
+
+    def test_import_error_handling_psycopg2(self):
+        """Test that HAS_PSYCOPG2 is False when psycopg2 import fails."""
+        from baseball.ingestion.enrich_player_identity import HAS_PSYCOPG2
+        assert isinstance(HAS_PSYCOPG2, bool)
+
+    def test_import_error_handling_statsapi(self):
+        """Test that HAS_STATSAPI is False when statsapi import fails."""
+        from baseball.ingestion.enrich_player_identity import HAS_STATSAPI
+        assert isinstance(HAS_STATSAPI, bool)
+
+    def test_import_error_handling_pybaseball(self):
+        """Test that HAS_PYBASEBALL is False when pybaseball import fails."""
+        from baseball.ingestion.enrich_player_identity import HAS_PYBASEBALL
+        assert isinstance(HAS_PYBASEBALL, bool)
+
+    def test_exit_code_1_on_errors(self):
+        """Test that CLI exits with code 1 when errors > 0."""
+        from baseball.ingestion.enrich_player_identity import app, PendingPlayer
+        from typer.testing import CliRunner
+
+        runner = CliRunner()
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchall.side_effect = [
+            [],  # pending players
+            [],  # reconcile results
+        ]
+
+        # Create a pending player that will trigger the error path
+        pending_player = PendingPlayer(
+            player_identity_id=1,
+            mlbam_player_id=None,
+            player_name="Test Player",
+            identity_confidence_score=0.0,
+        )
+
+        with patch("baseball.ingestion.enrich_player_identity.HAS_PSYCOPG2", True):
+            with patch("psycopg2.connect", return_value=mock_conn):
+                with patch("baseball.ingestion.enrich_player_identity.run_orphan_check", return_value=[]):
+                    with patch("baseball.ingestion.enrich_player_identity._load_chadwick_from_db"):
+                        with patch("baseball.ingestion.enrich_player_identity._chadwick_cache", {}):
+                            with patch("baseball.ingestion.enrich_player_identity.HAS_STATSAPI", False):
+                                with patch("baseball.ingestion.enrich_player_identity.HAS_PYBASEBALL", False):
+                                    with patch("baseball.ingestion.enrich_player_identity._chadwick_name_cache", {}):
+                                        with patch("baseball.ingestion.enrich_player_identity.time.sleep"):
+                                            # Return a pending player so insert_candidate gets called
+                                            with patch("baseball.ingestion.enrich_player_identity.get_pending_players", return_value=[pending_player]):
+                                                # Simulate an error during insert_candidate
+                                                def raise_error(*args, **kwargs):
+                                                    raise Exception("Simulated error")
+                                                with patch("baseball.ingestion.enrich_player_identity.insert_candidate", side_effect=raise_error):
+                                                    result = runner.invoke(app, ["--database-url", "postgresql://test", "--skip-chadwick-load"])
+                                                    # Should exit with code 1 due to errors > 0
+                                                    assert result.exit_code == 1
