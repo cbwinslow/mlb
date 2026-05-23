@@ -11,7 +11,7 @@ on:
 
 jobs:
   analyze:
-    runs-on: self-hosted  # or ubuntu-latest if you prefer hosted
+    runs-on: [self-hosted, homelab, linux]  # using self-hosted runner
     permissions:
       actions: read
       contents: read
