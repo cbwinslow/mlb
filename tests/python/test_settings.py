@@ -13,6 +13,7 @@ AppSettings by passing the nested models as direct keyword arguments rather
 than relying on env-var injection for nested fields.  Top-level AppSettings
 fields (env, log_level) are still exercised via env vars.
 """
+
 from __future__ import annotations
 
 import os
@@ -66,7 +67,9 @@ def _make_settings(
     with patch.dict(os.environ, env_patch, clear=False):
         return AppSettings(
             database=_db(db_url),
-            workspace=WorkspaceSettings.model_validate({"DEFAULT_WORKSPACE_CODE": workspace_code}),
+            workspace=WorkspaceSettings.model_validate(
+                {"DEFAULT_WORKSPACE_CODE": workspace_code}
+            ),
             ops=OpsSettings.model_validate({"DEFAULT_QUEUE_NAME": queue_name}),
         )
 
@@ -74,6 +77,7 @@ def _make_settings(
 # ---------------------------------------------------------------------------
 # AppEnv
 # ---------------------------------------------------------------------------
+
 
 class TestAppEnv:
     def test_values_are_lowercase_strings(self):
@@ -106,6 +110,7 @@ class TestAppEnv:
 # ---------------------------------------------------------------------------
 # DatabaseSettings
 # ---------------------------------------------------------------------------
+
 
 class TestDatabaseSettings:
     def test_valid_url_with_password(self):
@@ -155,13 +160,16 @@ class TestDatabaseSettings:
 # WorkspaceSettings
 # ---------------------------------------------------------------------------
 
+
 class TestWorkspaceSettings:
     def test_default_workspace_code(self):
         ws = WorkspaceSettings.model_validate({})
         assert ws.default_workspace_code == "local-dev"
 
     def test_custom_workspace_code(self):
-        ws = WorkspaceSettings.model_validate({"DEFAULT_WORKSPACE_CODE": "prod-us-east"})
+        ws = WorkspaceSettings.model_validate(
+            {"DEFAULT_WORKSPACE_CODE": "prod-us-east"}
+        )
         assert ws.default_workspace_code == "prod-us-east"
 
     def test_empty_string_accepted(self):
@@ -176,6 +184,7 @@ class TestWorkspaceSettings:
 # ---------------------------------------------------------------------------
 # OpsSettings
 # ---------------------------------------------------------------------------
+
 
 class TestOpsSettings:
     def test_default_queue_name(self):
@@ -198,6 +207,7 @@ class TestOpsSettings:
 # ---------------------------------------------------------------------------
 # AppSettings
 # ---------------------------------------------------------------------------
+
 
 class TestAppSettings:
     def setup_method(self):
@@ -237,7 +247,9 @@ class TestAppSettings:
         assert settings.log_level == "ERROR"
 
     def test_invalid_log_level_raises(self):
-        with patch.dict(os.environ, {"APP_ENV": "local", "LOG_LEVEL": "VERBOSE"}, clear=False):
+        with patch.dict(
+            os.environ, {"APP_ENV": "local", "LOG_LEVEL": "VERBOSE"}, clear=False
+        ):
             with pytest.raises((ValidationError, ValueError)):
                 AppSettings(database=_db())
 
@@ -268,7 +280,9 @@ class TestAppSettings:
     def test_all_valid_log_levels(self):
         for level in ("DEBUG", "INFO", "WARNING", "ERROR"):
             get_settings.cache_clear()
-            with patch.dict(os.environ, {"APP_ENV": "local", "LOG_LEVEL": level}, clear=False):
+            with patch.dict(
+                os.environ, {"APP_ENV": "local", "LOG_LEVEL": level}, clear=False
+            ):
                 settings = AppSettings(database=_db())
             assert settings.log_level == level
 
@@ -289,6 +303,7 @@ class TestAppSettings:
 # ---------------------------------------------------------------------------
 # get_settings
 # ---------------------------------------------------------------------------
+
 
 class TestGetSettings:
     def setup_method(self):

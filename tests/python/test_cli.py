@@ -2,6 +2,7 @@
 
 Covers _mask_db_url(), the db-init command, and the db-smoke command.
 """
+
 from __future__ import annotations
 
 import os
@@ -12,7 +13,13 @@ import pytest
 from typer.testing import CliRunner
 
 from baseball.cli import SQL_ROOT, TEST_SQL_ROOT, _mask_db_url, app
-from baseball.settings import AppEnv, AppSettings, DatabaseSettings, OpsSettings, WorkspaceSettings
+from baseball.settings import (
+    AppEnv,
+    AppSettings,
+    DatabaseSettings,
+    OpsSettings,
+    WorkspaceSettings,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,6 +58,7 @@ def _make_mock_settings(
 # ---------------------------------------------------------------------------
 # _mask_db_url
 # ---------------------------------------------------------------------------
+
 
 class TestMaskDbUrl:
     def test_password_is_masked(self):
@@ -134,6 +142,7 @@ class TestMaskDbUrl:
 # SQL_ROOT and TEST_SQL_ROOT constants
 # ---------------------------------------------------------------------------
 
+
 class TestPathConstants:
     def test_sql_root_is_path(self):
         assert isinstance(SQL_ROOT, Path)
@@ -157,6 +166,7 @@ class TestPathConstants:
 # ---------------------------------------------------------------------------
 # CLI: db-init command
 # ---------------------------------------------------------------------------
+
 
 class TestDbInitCommand:
     def test_exit_code_zero(self):
@@ -184,13 +194,17 @@ class TestDbInitCommand:
         assert "sql" in result.output
 
     def test_password_not_exposed_in_output(self):
-        mock_settings = _make_mock_settings(db_url="postgresql+asyncpg://mlb:supersecret@localhost:5432/mlb")
+        mock_settings = _make_mock_settings(
+            db_url="postgresql+asyncpg://mlb:supersecret@localhost:5432/mlb"
+        )
         with patch("baseball.cli.get_settings", return_value=mock_settings):
             result = runner.invoke(app, ["db-init"])
         assert "supersecret" not in result.output
 
     def test_password_masked_as_stars(self):
-        mock_settings = _make_mock_settings(db_url="postgresql+asyncpg://mlb:topsecret@localhost:5432/mlb")
+        mock_settings = _make_mock_settings(
+            db_url="postgresql+asyncpg://mlb:topsecret@localhost:5432/mlb"
+        )
         with patch("baseball.cli.get_settings", return_value=mock_settings):
             result = runner.invoke(app, ["db-init"])
         assert "***" in result.output
@@ -219,6 +233,7 @@ class TestDbInitCommand:
 # CLI: db-smoke command
 # ---------------------------------------------------------------------------
 
+
 class TestDbSmokeCommand:
     def test_exit_code_zero(self):
         mock_settings = _make_mock_settings()
@@ -245,13 +260,17 @@ class TestDbSmokeCommand:
         assert "tests" in result.output
 
     def test_password_not_exposed_in_output(self):
-        mock_settings = _make_mock_settings(db_url="postgresql+asyncpg://mlb:topsecret@localhost:5432/mlb")
+        mock_settings = _make_mock_settings(
+            db_url="postgresql+asyncpg://mlb:topsecret@localhost:5432/mlb"
+        )
         with patch("baseball.cli.get_settings", return_value=mock_settings):
             result = runner.invoke(app, ["db-smoke"])
         assert "topsecret" not in result.output
 
     def test_password_masked_as_stars(self):
-        mock_settings = _make_mock_settings(db_url="postgresql+asyncpg://mlb:p4ssw0rd@localhost:5432/mlb")
+        mock_settings = _make_mock_settings(
+            db_url="postgresql+asyncpg://mlb:p4ssw0rd@localhost:5432/mlb"
+        )
         with patch("baseball.cli.get_settings", return_value=mock_settings):
             result = runner.invoke(app, ["db-smoke"])
         assert "***" in result.output
@@ -272,6 +291,7 @@ class TestDbSmokeCommand:
 # ---------------------------------------------------------------------------
 # CLI: general / help
 # ---------------------------------------------------------------------------
+
 
 class TestCliHelp:
     def test_help_exits_cleanly(self):
@@ -302,6 +322,7 @@ class TestCliHelp:
 # ---------------------------------------------------------------------------
 # CLI: enrich-identities command (optional deps handling)
 # ---------------------------------------------------------------------------
+
 
 class TestEnrichIdentitiesCommand:
     """Tests for enrich-identities command when optional deps are missing."""
@@ -334,7 +355,7 @@ class TestEnrichIdentitiesCommand:
         # We test the callback function behavior directly
         from typer.testing import CliRunner
         from rich.console import Console
-        
+
         # Create a minimal test to verify the stub message format
         console = Console()
         expected_message = (
@@ -342,7 +363,7 @@ class TestEnrichIdentitiesCommand:
             "Install them with:\n"
             "  pip install psycopg2-binary python-mlb-statsapi pybaseball"
         )
-        
+
         # Verify the message format is correct
         assert "requires additional packages" in expected_message
         assert "psycopg2-binary" in expected_message
@@ -353,46 +374,52 @@ class TestEnrichIdentitiesCommand:
         """Test the ImportError path by mocking the import to fail."""
         import sys
         import importlib
-        
+
         # Save the original module
-        original_cli = sys.modules.get('baseball.cli')
-        
+        original_cli = sys.modules.get("baseball.cli")
+
         try:
             # Remove the module from cache to force re-import
-            if 'baseball.cli' in sys.modules:
-                del sys.modules['baseball.cli']
-            
+            if "baseball.cli" in sys.modules:
+                del sys.modules["baseball.cli"]
+
             # Mock the import to raise ImportError
-            with patch.dict('sys.modules', {
-                'baseball.ingestion.enrich_player_identity': None
-            }):
+            with patch.dict(
+                "sys.modules", {"baseball.ingestion.enrich_player_identity": None}
+            ):
                 # This should trigger the ImportError path
                 # We need to mock the import mechanism
                 import builtins
+
                 real_import = builtins.__import__
-                
+
                 def mock_import(name, *args, **kwargs):
-                    if 'enrich_player_identity' in name:
+                    if "enrich_player_identity" in name:
                         raise ImportError("Mocked import error")
                     return real_import(name, *args, **kwargs)
-                
-                with patch('builtins.__import__', side_effect=mock_import):
+
+                with patch("builtins.__import__", side_effect=mock_import):
                     # Re-import the cli module to trigger the ImportError path
                     import baseball.cli as cli_module
+
                     importlib.reload(cli_module)
-                    
+
                     # Now test that the stub is registered
                     result = runner.invoke(cli_module.app, ["enrich-identities"])
-                    assert "requires additional packages" in result.output or result.exit_code != 0
+                    assert (
+                        "requires additional packages" in result.output
+                        or result.exit_code != 0
+                    )
         finally:
             # Restore the original module
             if original_cli is not None:
-                sys.modules['baseball.cli'] = original_cli
+                sys.modules["baseball.cli"] = original_cli
 
 
 # ---------------------------------------------------------------------------
 # _get_enrich_app function
 # ---------------------------------------------------------------------------
+
 
 class TestGetEnrichApp:
     """Tests for _get_enrich_app function."""
@@ -400,12 +427,14 @@ class TestGetEnrichApp:
     def test_get_enrich_app_returns_typer(self):
         """_get_enrich_app returns a Typer application."""
         from baseball.cli import _get_enrich_app
+
         result = _get_enrich_app()
         assert result is not None
 
     def test_get_enrich_app_lazy_import(self):
         """_get_enrich_app performs lazy import of enrich_player_identity."""
         from baseball.cli import _get_enrich_app
+
         # The function should work even if deps weren't loaded at module init
         result = _get_enrich_app()
         assert result is not None

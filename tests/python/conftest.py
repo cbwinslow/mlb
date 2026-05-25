@@ -1,4 +1,5 @@
 """Shared pytest fixtures for baseball tests."""
+
 from __future__ import annotations
 
 import os
@@ -19,6 +20,7 @@ from baseball.settings import (
 # ---------------------------------------------------------------------------
 # Settings Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def valid_db_url() -> str:
@@ -53,7 +55,9 @@ def settings_dict(valid_db_url: str) -> dict:
     """Settings dictionary for AppSettings construction."""
     return {
         "database": DatabaseSettings.model_validate({"DATABASE_URL": valid_db_url}),
-        "workspace": WorkspaceSettings.model_validate({"DEFAULT_WORKSPACE_CODE": "test"}),
+        "workspace": WorkspaceSettings.model_validate(
+            {"DEFAULT_WORKSPACE_CODE": "test"}
+        ),
         "ops": OpsSettings.model_validate({"DEFAULT_QUEUE_NAME": "test"}),
     }
 
@@ -61,6 +65,7 @@ def settings_dict(valid_db_url: str) -> dict:
 # ---------------------------------------------------------------------------
 # Path Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sql_root() -> Path:
@@ -77,6 +82,7 @@ def test_sql_root() -> Path:
 # ---------------------------------------------------------------------------
 # PendingPlayer Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sample_pending_player() -> dict:
@@ -103,6 +109,7 @@ def sample_pending_player_no_mlbam() -> dict:
 # ---------------------------------------------------------------------------
 # ResolvedIds Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def resolved_ids_full() -> dict:
@@ -153,6 +160,7 @@ def resolved_ids_unresolved() -> dict:
 # Mock Database Connection
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_db_connection():
     """Mock database connection for testing."""
@@ -175,10 +183,15 @@ def mock_db_connection():
 # Environment Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Clean environment variables before each test."""
     # Remove test-specific env vars that might interfere
     for key in list(os.environ.keys()):
-        if key.startswith("APP_") or key.startswith("DATABASE_") or key.startswith("LOG_"):
+        if (
+            key.startswith("APP_")
+            or key.startswith("DATABASE_")
+            or key.startswith("LOG_")
+        ):
             monkeypatch.delenv(key, raising=False)

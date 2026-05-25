@@ -12,11 +12,11 @@ BEGIN
   SELECT array_agg(s)
   INTO missing_schemas
   FROM (
-    SELECT unnest(ARRAY[
-      'meta','ref','rawretrosheet','rawchadwick','rawlahman','rawstatcast',
-      'rawmlbapi','rawfangraphs','rawbref','rawespn','rawodds',
-      'stg','core','mart','util','auth','api','ml','ops'
-    ]) AS s
+SELECT unnest(ARRAY[
+       'meta','ref','raw_retrosheet','raw_chadwick','raw_lahman','raw_statcast',
+       'raw_mlbapi','raw_fangraphs','raw_bref','raw_espn','raw_odds',
+       'stg','core','mart','util','auth','api','ml','ops'
+     ]) AS s
   ) expected
   WHERE NOT EXISTS (
     SELECT 1 FROM information_schema.schemata i WHERE i.schema_name = expected.s
@@ -34,28 +34,28 @@ BEGIN
   SELECT array_agg(obj)
   INTO missing_tables
   FROM (
-    SELECT unnest(ARRAY[
-      'meta.sourcesystem',
-      'meta.sourceendpoint',
-      'meta.ingestrun',
-      'meta.sourcefile',
-      'meta.rawpayloadregistry',
-      'meta.ingesterror',
-      'rawretrosheet.eventfile',
-      'rawretrosheet.game',
-      'rawretrosheet.record',
-      'stg.playeridentity',
-      'stg.gameidentity',
-      'core.player',
-      'core.team',
-      'core.game',
-      'ml.problemdefinition',
-      'ml.predictionoutput',
-      'ops.jobqueue',
-      'ops.scheduledjob',
-      'auth.workspace',
-      'api.requestlog'
-    ]) AS obj
+SELECT unnest(ARRAY[
+       'meta.source_system',
+       'meta.source_endpoint',
+       'meta.ingest_run',
+       'meta.source_file',
+       'meta.raw_payload_registry',
+       'meta.ingest_error',
+       'raw_retrosheet.event_file',
+       'raw_retrosheet.game',
+       'raw_retrosheet.record',
+       'stg.player_identity',
+       'stg.game_identity',
+       'core.player',
+       'core.team',
+       'core.games',
+       'ml.problem_definition',
+       'ml.prediction_output',
+       'ops.job_queue',
+       'ops.scheduled_job',
+       'auth.workspace',
+       'api.request_log'
+     ]) AS obj
   ) expected
   WHERE to_regclass(expected.obj) IS NULL;
 
@@ -112,7 +112,7 @@ DO $$
 DECLARE
   source_count integer;
 BEGIN
-  SELECT COUNT(*) INTO source_count FROM meta.sourcesystem;
+  SELECT COUNT(*) INTO source_count FROM meta.source_system;
   IF source_count < 8 THEN
     RAISE EXCEPTION 'Expected seeded source systems, found only %', source_count;
   END IF;

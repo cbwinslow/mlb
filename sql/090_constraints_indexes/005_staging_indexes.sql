@@ -9,8 +9,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS stg_player_identity_retrosheet_uidx
     WHERE retrosheet_player_id IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS stg_player_identity_lahman_uidx
-    ON stg.player_identity (lahman_player_id)
-    WHERE lahman_player_id IS NOT NULL;
+     ON stg.player_identity (lahman_player_id)
+     WHERE lahman_player_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS stg_player_identity_bbref_uidx
+     ON stg.player_identity (bbref_player_id)
+     WHERE bbref_player_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS stg_player_identity_fangraphs_uidx
+     ON stg.player_identity (fangraphs_player_id)
+     WHERE fangraphs_player_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS stg_player_identity_name_birth_idx
     ON stg.player_identity (last_name, first_name, birth_date);

@@ -18,7 +18,8 @@ class DatabaseSettings(BaseModel):
     """Nested database config — inherits from BaseModel, not BaseSettings."""
 
     url: AnyUrl = Field(
-        ..., alias="DATABASE_URL",
+        ...,
+        alias="DATABASE_URL",
         description="SQLAlchemy-style database URL for the core PostgreSQL cluster.",
     )
     schema_search_path: Optional[str] = Field(

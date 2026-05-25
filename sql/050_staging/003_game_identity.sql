@@ -20,11 +20,8 @@ CREATE TABLE IF NOT EXISTS stg.game_identity (
 COMMENT ON TABLE stg.game_identity IS
     'Staging table for cross-source game identity, containing raw keys from source systems and links to resolved team/venue identities.';
 
-DROP TRIGGER IF EXISTS trg_stg_game_identity_updated_at ON stg.game_identity;
-CREATE TRIGGER trg_stg_game_identity_updated_at
-BEFORE UPDATE ON stg.game_identity
-FOR EACH ROW
-EXECUTE FUNCTION util.stg_touch_updated_at();
+-- Note: Trigger for updated_at is created in sql/080_functions/005_staging_functions.sql
+-- This ensures the function util.stg_touch_updated_at() exists when the trigger is defined
 
 COMMENT ON COLUMN stg.game_identity.mlbam_game_pk IS
     'MLB Stats API numeric game identifier (gamePk). Null for pre-API historical games.';

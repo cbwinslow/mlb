@@ -27,7 +27,8 @@ sql/
 │   ├── 003_raw_statcast.sql
 │   ├── 004_raw_mlbapi.sql
 │   ├── 005_raw_lahman.sql
-│   └── 006_raw_web_sources.sql
+│   ├── 006_raw_web_sources.sql
+│   └── 006_raw_web_sources_migration_v2.sql
 ├── 050_staging/
 │   ├── 001_identity_bridge.sql
 │   ├── 002_identity_trigger_and_indexes.sql

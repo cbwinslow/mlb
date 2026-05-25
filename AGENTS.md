@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-25 (Schema Refactor cleanup completed)
+> Last updated: 2026-05-25 (code review fixes, DEC-010/DEC-011 complete, Python ingestion components)
 
 ---
 
@@ -66,7 +66,8 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | ✅ Complete (110 cols) — 2026-05-19 |
 | `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | 🟡 Audited — JSONB ingest tables present; typed staging tables pending |
 | `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | ✅ Complete (all 21 tables) — 2026-05-19 |
-| `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | 🟡 FG/BRef payload tables present; typed stat tables pending (DEC-007) |
+| `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | ✅ Complete |
+| `sql/040_raw/006_raw_web_sources_migration_v2.sql` | Additional typed tables for all web sources | ✅ Added 2026-05-25 (batter/pitcher splits, baserunning, plate_discipline, schedule, scores, market_lines) |
 
 ---
 
@@ -79,6 +80,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/050_staging/003_game_identity.sql` | `stg.game_identity` initial table | ✅ Complete |
 | `sql/050_staging/005_game_identity_bridge.sql` | `stg.game_identity` enhancements (canonical game ID mapping, triggers, views) | ✅ Complete |
 | `sql/050_staging/006_source_conformance.sql` | `stg.player/team/venue_source_conformance` | ✅ Complete |
+| `sql/050_staging/007_mlbapi_extraction.sql` | `stg.mlbapi_game`, `stg.mlbapi_person`, `stg.mlbapi_team` (typed extraction from JSONB) | ✅ Complete |
 
 ---
 
@@ -132,11 +134,24 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Fixed foreign key type mismatches in ML ops tables
     - Verified bootstrap and test suite pass (197/197 tests)
 
+### Completed ✅
+- [x] **Step 11:** Add typed tables to `raw_fangraphs` and `raw_bref`
+    - File: `sql/040_raw/006_raw_web_sources_migration_v2.sql`
+    - Tables: batter_splits, pitcher_splits, baserunning, plate_discipline
+    - Source: DEC-007
+- [x] **Step 12:** Complete `raw_espn` and `raw_odds` typed tables
+    - File: `sql/040_raw/006_raw_web_sources_migration_v2.sql`
+    - Tables: raw_espn.schedule, raw_espn.scores, raw_odds.market_lines
+- [x] **Step 13:** Audit `stg.player_identity` for all 5 cross-source keys
+    - Added unique partial indexes for bbref_player_id and fangraphs_player_id
+    - File: `sql/090_constraints_indexes/005_staging_indexes.sql`
+- [x] **Issue #17:** Create ingestion Python components
+    - Files: `baseball/ingestion/orchestrator.py`, `baseball/ingestion/loaders.py`, `baseball/ingestion/engine.py`
+    - Added ingest commands to CLI: `baseball ingest lahman`, `baseball ingest retrosheet`, etc.
+
 ### Outstanding 🔲
-- [ ] **Next:** Add fully typed stat tables to `raw_fangraphs` and `raw_bref` (DEC-007) — replace JSONB-only payload tables
-- [ ] **Next:** Add typed extraction staging tables for `raw_mlbapi` JSONB blobs (DEC-010)
 - [ ] **Next:** Alembic integration — manual DDL in `sql/` + Alembic version tracking only (DEC-009); see ROADMAP.md Milestone 2
-- [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-011)
+- [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
 - [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
 
 ### Documentation Audit ✅ Completed
@@ -149,6 +164,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] Updated `docs/player_identity_design.md` diagram
 - [x] Updated `docs/github-workflow.md` issue title example
 - [x] Created `docs/audit_checklist.md` with audit verification
+- [x] Updated `AGENTS.md` with new typed tables and Python components
 
 ---
 

@@ -1,4 +1,5 @@
 """Tests for baseball/__init__.py package exports."""
+
 from __future__ import annotations
 
 import typer
@@ -18,4 +19,5 @@ class TestPackageExports:
 
     def test_app_is_same_object_as_cli_app(self):
         from baseball.cli import app as cli_app
+
         assert baseball.app is cli_app

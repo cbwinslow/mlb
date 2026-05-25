@@ -152,8 +152,7 @@ coverage.json
 .gemini/
 .kilo/
 .opencode/
-
-# Temporary files
-*.tmp
-*.temp
-*.bak.refact/buddy/runtime_queue.jsonl
+.refact/
+.refact/buddy/state.json
+.refact/buddy/memory_ops.jsonl
+.refact/buddy/runtime_queue.jsonl

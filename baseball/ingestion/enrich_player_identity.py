@@ -45,7 +45,13 @@ from typing import Iterator, Optional
 
 import typer
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 from rich.table import Table
 
 # ---------------------------------------------------------------------------
@@ -55,18 +61,21 @@ from rich.table import Table
 try:
     import psycopg2
     import psycopg2.extras
+
     HAS_PSYCOPG2 = True
 except ImportError:
     HAS_PSYCOPG2 = False
 
 try:
     import statsapi  # pip install python-mlb-statsapi
+
     HAS_STATSAPI = True
 except ImportError:
     HAS_STATSAPI = False
 
 try:
     import pybaseball  # pip install pybaseball
+
     HAS_PYBASEBALL = True
 except ImportError:
     HAS_PYBASEBALL = False
@@ -85,6 +94,7 @@ console = Console()
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class PendingPlayer:
@@ -126,7 +136,7 @@ class WorkerStats:
 # In-process Chadwick cache  (populated once from DB or from CSV)
 # ---------------------------------------------------------------------------
 
-_chadwick_cache: dict[int, dict] = {}          # key_mlbam → row dict
+_chadwick_cache: dict[int, dict] = {}  # key_mlbam → row dict
 _chadwick_name_cache: dict[str, list[dict]] = {}  # "last,first" → list of rows
 
 
@@ -155,14 +165,17 @@ def _load_chadwick_from_db(conn) -> None:
         if mlbam:
             _chadwick_cache[int(mlbam)] = d
 
-        last  = (d.get("name_last")  or "").lower().strip()
+        last = (d.get("name_last") or "").lower().strip()
         first = (d.get("name_first") or "").lower().strip()
         if last:
             key = f"{last},{first}"
             _chadwick_name_cache.setdefault(key, []).append(d)
 
-    log.info("Chadwick cache loaded: %d players by MLBAM, %d name keys",
-             len(_chadwick_cache), len(_chadwick_name_cache))
+    log.info(
+        "Chadwick cache loaded: %d players by MLBAM, %d name keys",
+        len(_chadwick_cache),
+        len(_chadwick_name_cache),
+    )
 
 
 def _load_chadwick_from_csv(csv_path: Path) -> None:
@@ -185,6 +198,7 @@ def _load_chadwick_from_csv(csv_path: Path) -> None:
 # Resolution strategies
 # ---------------------------------------------------------------------------
 
+
 def _resolve_via_statsapi(mlbam_id: int) -> Optional[ResolvedIds]:
     """
     MLB StatsAPI people endpoint with xrefId hydration.
@@ -203,14 +217,16 @@ def _resolve_via_statsapi(mlbam_id: int) -> Optional[ResolvedIds]:
         p = people[0]
         xrefs = p.get("xrefIds", {})
 
-        retro  = xrefs.get("retrosheet") or xrefs.get("retro") or None
-        bbref  = xrefs.get("bbref") or xrefs.get("baseball_reference") or None
+        retro = xrefs.get("retrosheet") or xrefs.get("retro") or None
+        bbref = xrefs.get("bbref") or xrefs.get("baseball_reference") or None
         lahman = xrefs.get("lahman") or None
-        fg     = xrefs.get("fangraphs") or None
+        fg = xrefs.get("fangraphs") or None
 
         # Only trust this result if we got at least one xref back
         xref_count = sum(1 for v in (retro, bbref, lahman, fg) if v)
-        confidence = 0.70 + min(xref_count * 0.07, 0.25)  # 0.70 → 0.95 based on richness
+        confidence = 0.70 + min(
+            xref_count * 0.07, 0.25
+        )  # 0.70 → 0.95 based on richness
 
         return ResolvedIds(
             mlbam_player_id=mlbam_id,
@@ -236,9 +252,9 @@ def _resolve_via_chadwick_cache(mlbam_id: int) -> Optional[ResolvedIds]:
     if not row:
         return None
 
-    retro  = row.get("key_retro")  or None
-    bbref  = row.get("key_bbref")  or None
-    fg     = row.get("key_fangraphs") or None
+    retro = row.get("key_retro") or None
+    bbref = row.get("key_bbref") or None
+    fg = row.get("key_fangraphs") or None
     lahman = row.get("key_lahman") or None
 
     xref_count = sum(1 for v in (retro, bbref, fg, lahman) if v)
@@ -309,7 +325,7 @@ def _resolve_via_chadwick_name(player_name: str) -> Optional[ResolvedIds]:
     if len(parts) < 2:
         return None
 
-    last  = parts[-1].lower()
+    last = parts[-1].lower()
     first = parts[0].lower()
     key = f"{last},{first}"
     candidates = _chadwick_name_cache.get(key, [])
@@ -385,6 +401,7 @@ def resolve_player(player: PendingPlayer) -> ResolvedIds:
 # Database helpers
 # ---------------------------------------------------------------------------
 
+
 def get_pending_players(conn, limit: Optional[int] = None) -> list[PendingPlayer]:
     """Fetch rows from stg.v_players_pending_enrichment."""
     sql = """
@@ -440,17 +457,20 @@ def insert_candidate(conn, player_id: int, resolved: ResolvedIds) -> None:
                 created_at                = NOW()
     """
     with conn.cursor() as cur:
-        cur.execute(sql, {
-            "pid":    player_id,
-            "mlbam":  resolved.mlbam_player_id,
-            "retro":  resolved.retrosheet_player_id,
-            "bbref":  resolved.bbref_player_id,
-            "fg":     resolved.fangraphs_player_id,
-            "lahman": resolved.lahman_player_id,
-            "conf":   resolved.confidence,
-            "src":    resolved.source,
-            "notes":  resolved.notes,
-        })
+        cur.execute(
+            sql,
+            {
+                "pid": player_id,
+                "mlbam": resolved.mlbam_player_id,
+                "retro": resolved.retrosheet_player_id,
+                "bbref": resolved.bbref_player_id,
+                "fg": resolved.fangraphs_player_id,
+                "lahman": resolved.lahman_player_id,
+                "conf": resolved.confidence,
+                "src": resolved.source,
+                "notes": resolved.notes,
+            },
+        )
 
 
 def run_reconcile(conn, min_confidence: float = 0.85) -> list[dict]:
@@ -507,19 +527,24 @@ def seed_chadwick_csv(conn, csv_path: Path) -> int:
 # Rich display helpers
 # ---------------------------------------------------------------------------
 
+
 def _print_stats(stats: WorkerStats) -> None:
-    table = Table(title="Enrichment Worker — Run Summary", show_header=True, header_style="bold cyan")
+    table = Table(
+        title="Enrichment Worker — Run Summary",
+        show_header=True,
+        header_style="bold cyan",
+    )
     table.add_column("Metric", style="bold")
     table.add_column("Count", justify="right")
 
-    table.add_row("Players processed",          str(stats.processed))
-    table.add_row("Resolved via StatsAPI",       str(stats.resolved_statsapi))
-    table.add_row("Resolved via pybaseball",     str(stats.resolved_pybaseball))
+    table.add_row("Players processed", str(stats.processed))
+    table.add_row("Resolved via StatsAPI", str(stats.resolved_statsapi))
+    table.add_row("Resolved via pybaseball", str(stats.resolved_pybaseball))
     table.add_row("Resolved via Chadwick cache", str(stats.resolved_chadwick_cache))
-    table.add_row("Flagged for manual review",   str(stats.flagged_manual))
-    table.add_row("Auto-promoted",               str(stats.auto_promoted))
-    table.add_row("Errors",                      str(stats.errors))
-    table.add_row("Elapsed (s)",                 f"{stats.elapsed_seconds:.1f}")
+    table.add_row("Flagged for manual review", str(stats.flagged_manual))
+    table.add_row("Auto-promoted", str(stats.auto_promoted))
+    table.add_row("Errors", str(stats.errors))
+    table.add_row("Elapsed (s)", f"{stats.elapsed_seconds:.1f}")
 
     console.print(table)
 
@@ -529,7 +554,9 @@ def _print_reconcile(results: list[dict]) -> None:
         console.print("[green]No candidates to reconcile.[/green]")
         return
 
-    table = Table(title="Reconciliation Results", show_header=True, header_style="bold magenta")
+    table = Table(
+        title="Reconciliation Results", show_header=True, header_style="bold magenta"
+    )
     for col in ("player_identity_id", "action", "confidence", "source"):
         table.add_column(col)
 
@@ -550,6 +577,7 @@ def _print_reconcile(results: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Main worker loop
 # ---------------------------------------------------------------------------
+
 
 def run_enrichment(
     database_url: str,
@@ -596,7 +624,8 @@ def run_enrichment(
         if orphans:
             log.critical(
                 "ORPHAN ALERT: %d pitches have no identity placeholder! "
-                "Investigate raw_statcast.pitch trigger immediately.", len(orphans)
+                "Investigate raw_statcast.pitch trigger immediately.",
+                len(orphans),
             )
         else:
             log.info("Orphan check: OK (0 orphaned pitches)")
@@ -650,8 +679,11 @@ def run_enrichment(
                         insert_candidate(conn, player.player_identity_id, resolved)
 
                 except Exception as exc:
-                    log.warning("Error processing player_id=%s: %s",
-                                player.player_identity_id, exc)
+                    log.warning(
+                        "Error processing player_id=%s: %s",
+                        player.player_identity_id,
+                        exc,
+                    )
                     stats.errors += 1
 
                 progress.advance(task)
@@ -665,8 +697,10 @@ def run_enrichment(
         # ---------------------------------------------------------------
         if not dry_run:
             conn.commit()
-            log.info("Candidates committed. Running reconciliation (threshold=%.2f) ...",
-                     min_confidence)
+            log.info(
+                "Candidates committed. Running reconciliation (threshold=%.2f) ...",
+                min_confidence,
+            )
             reconcile_results = run_reconcile(conn, min_confidence)
             conn.commit()
 
@@ -709,7 +743,8 @@ def main(
     ),
     limit: Optional[int] = typer.Option(
         None,
-        "--limit", "-n",
+        "--limit",
+        "-n",
         help="Max players to process in this run. Omit for all pending.",
     ),
     min_confidence: float = typer.Option(
@@ -761,7 +796,9 @@ def main(
         logging.getLogger().setLevel(logging.DEBUG)
 
     if dry_run:
-        console.print("[bold yellow]DRY RUN — no database writes will occur.[/bold yellow]")
+        console.print(
+            "[bold yellow]DRY RUN — no database writes will occur.[/bold yellow]"
+        )
 
     stats = run_enrichment(
         database_url=database_url,
@@ -776,7 +813,9 @@ def main(
     _print_stats(stats)
 
     if stats.errors > 0:
-        console.print(f"[bold red]{stats.errors} errors occurred — check logs.[/bold red]")
+        console.print(
+            f"[bold red]{stats.errors} errors occurred — check logs.[/bold red]"
+        )
         raise typer.Exit(code=1)
 
 

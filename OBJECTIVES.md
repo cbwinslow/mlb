@@ -4,7 +4,7 @@
 >
 > Every contributor — human or AI — should read this before making any architectural decision.
 
-Last updated: 2026-05-19
+Last updated: 2026-05-27
 
 ---
 
@@ -201,7 +201,7 @@ The following defines the completeness target for each raw source. "Complete" me
 | Lahman | `raw_lahman.*` | All 23 CSV tables, 100% of columns | ✅ Complete — all 23 tables present including salaries, awards, hall_of_fame, schools, college_playing, appearances, post-season |
 | Retrosheet | `raw_retrosheet.*` | Event, game, sub, roster files | ✅ Complete — event_file, game, record, info, start, sub, play, comment, data, adjustment all present |
 | Chadwick | `raw_chadwick.*` | Full cwevent 96-field spec + cwgame + cwsub | ✅ Complete — full 96-field cwevent table typed; cwevent_file, cwgame, cwsub present |
-| MLB Stats API | `raw_mlbapi.*` | All endpoint response fields | 🟡 Scaffold present — JSONB ingest pattern per DEC-010; typed extraction tables needed |
+| MLB Stats API | `raw_mlbapi.*` | All endpoint response fields | ✅ Complete — JSONB ingest + staging extraction tables (DEC-010) |
 | FanGraphs | `raw_fangraphs.*` | Typed stat tables per category | 🟡 Partial — batting/pitching/fielding standard+advanced+statcast typed; missing splits, baserunning, plate_discipline |
 | Baseball Reference | `raw_bref.*` | Typed stat tables per category | 🟡 Partial — batting/pitching/fielding standard+value typed; missing splits, baserunning, win_probability |
 | ESPN | `raw_espn.*` | Schedule, scores, player context | 🔴 Metadata only — request/page tables exist; no typed content tables |
@@ -356,19 +356,20 @@ Active backlog ordered by dependency. Each item links to its GitHub issue.
 
 | # | Task | File | Status | Issue |
 |---|------|------|--------|-------|
-| R-1 | Audit & complete `raw_mlbapi` typed extraction tables | `sql/040_raw/004_raw_mlbapi.sql` | 🟡 Scaffold only | #10 |
-| R-2 | `raw_fangraphs` missing tables: splits, baserunning, plate_discipline | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #11 |
-| R-3 | `raw_bref` missing tables: splits, baserunning, win_probability | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #11 |
-| R-4 | `raw_espn` typed content tables (schedule, scores, player) | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #12 |
-| R-5 | `raw_odds` typed line/result tables | `006_raw_web_sources_migration_v2.sql` | 🔴 Not started | #12 |
+| R-1 | Audit & complete `raw_mlbapi` typed extraction tables | `sql/040_raw/004_raw_mlbapi.sql` | ❌ **Already complete** - typed tables exist | #10 |
+| R-2 | `raw_fangraphs` missing tables: splits, baserunning, plate_discipline | `006_raw_web_sources_migration_v2.sql` | ✅ Complete | #11 |
+| R-3 | `raw_bref` missing tables: splits, baserunning, win_probability | `006_raw_web_sources_migration_v2.sql` | ✅ Complete | #11 |
+| R-4 | `raw_espn` typed content tables (schedule, scores, player) | `006_raw_web_sources_migration_v2.sql` | ✅ Complete | #12 |
+| R-5 | `raw_odds` typed line/result tables | `006_raw_web_sources_migration_v2.sql` | ✅ Complete | #12 |
 
 ### Staging Layer (050)
 
 | # | Task | File | Status | Issue |
 |---|------|------|--------|-------|
-| S-1 | Audit `stg.player_identity` — confirm all 4 cross-source keys | `sql/050_staging/` | 🟡 Needs audit | #13 |
+| S-1 | Audit `stg.player_identity` — confirm all 4 cross-source keys | `sql/050_staging/` | ✅ Complete | #13 |
 | S-2 | Identity upsert trigger `trg_statcast_pitch_player_resolve` | `sql/050_staging/002_identity_trigger_and_indexes.sql` | ✅ Complete | #13 |
 | S-3 | `stg.v_players_pending_enrichment` enrichment queue view | `sql/050_staging/` | ✅ Complete | #13 |
+| S-4 | `stg.mlbapi_game/person/team` extraction from JSONB | `sql/050_staging/007_mlbapi_extraction.sql` | ✅ Complete | #10 |
 
 ### Core Layer (060)
 

@@ -39,6 +39,8 @@ dependencies = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.14",
     "pylint>=4.0.5",
+    "sqlfluff>=4.2.1",
+    "psycopg2>=2.9.12",
 ]
 
 [project.urls]
