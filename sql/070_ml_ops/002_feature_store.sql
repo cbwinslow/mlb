@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS ml.feature_snapshot (
     season INT,
     entity_grain TEXT NOT NULL,
     entity_key TEXT NOT NULL,
-    game_id BIGINT
-        REFERENCES core.game(game_id)
+    game_id UUID
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
     team_id BIGINT
@@ -23,12 +23,12 @@ CREATE TABLE IF NOT EXISTS ml.feature_snapshot (
         REFERENCES core.player(player_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    plate_appearance_id BIGINT
-        REFERENCES core.plate_appearance(plate_appearance_id)
+    plate_appearance_id UUID
+        REFERENCES core.plate_appearances(plate_appearance_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    pitch_id BIGINT
-        REFERENCES core.pitch(pitch_id)
+    pitch_id UUID
+        REFERENCES core.pitches(pitch_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
     feature_payload JSONB NOT NULL,

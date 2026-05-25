@@ -11,12 +11,12 @@ CREATE TABLE IF NOT EXISTS core.player_team_season (
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
     season INT NOT NULL,
-    first_game_id BIGINT
-        REFERENCES core.game(game_id)
+    first_game_id UUID
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    last_game_id BIGINT
-        REFERENCES core.game(game_id)
+    last_game_id UUID
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
     games_played INT,
@@ -34,8 +34,8 @@ COMMENT ON TABLE core.player_team_season IS
 
 CREATE TABLE IF NOT EXISTS core.game_official (
     game_official_id BIGSERIAL PRIMARY KEY,
-    game_id BIGINT NOT NULL
-        REFERENCES core.game(game_id)
+    game_id UUID NOT NULL
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
     official_player_id BIGINT
@@ -54,8 +54,8 @@ COMMENT ON TABLE core.game_official IS
 
 CREATE TABLE IF NOT EXISTS core.game_source_map (
     game_source_map_id BIGSERIAL PRIMARY KEY,
-    game_id BIGINT NOT NULL
-        REFERENCES core.game(game_id)
+    game_id UUID NOT NULL
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
     source_system_code TEXT NOT NULL,
@@ -69,8 +69,8 @@ CREATE TABLE IF NOT EXISTS core.game_source_map (
 
 CREATE TABLE IF NOT EXISTS core.plate_appearance_source_map (
     plate_appearance_source_map_id BIGSERIAL PRIMARY KEY,
-    plate_appearance_id BIGINT NOT NULL
-        REFERENCES core.plate_appearance(plate_appearance_id)
+    plate_appearance_id UUID NOT NULL
+        REFERENCES core.plate_appearances(plate_appearance_id)
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
     source_system_code TEXT NOT NULL,
@@ -84,8 +84,8 @@ CREATE TABLE IF NOT EXISTS core.plate_appearance_source_map (
 
 CREATE TABLE IF NOT EXISTS core.pitch_source_map (
     pitch_source_map_id BIGSERIAL PRIMARY KEY,
-    pitch_id BIGINT NOT NULL
-        REFERENCES core.pitch(pitch_id)
+    pitch_id UUID NOT NULL
+        REFERENCES core.pitches(pitch_id)
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
     source_system_code TEXT NOT NULL,

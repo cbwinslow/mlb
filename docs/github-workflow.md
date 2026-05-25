@@ -11,7 +11,7 @@ Recommended conventions:
 
 - Use clear, action-oriented titles, e.g.:
   - `Implement baseball db-init CLI command`
-  - `Add async SQLAlchemy models for core.game`
+  - `Add async SQLAlchemy models for core.games`
   - `Model: moneyline win probability v1`
 - Use labels to categorize work, e.g.:
   - `area:sql`, `area:python`, `area:ingestion`, `area:modeling`, `area:ops`, `area:docs`.

@@ -62,24 +62,24 @@ CREATE TABLE IF NOT EXISTS ml.prediction_output (
         ON DELETE RESTRICT,
     entity_grain TEXT NOT NULL,
     entity_key TEXT NOT NULL,
-    game_id BIGINT
-        REFERENCES core.game(game_id)
+    game_id UUID
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    team_id BIGINT
+    team_id UUID
         REFERENCES core.team(team_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id BIGINT
+    player_id UUID
         REFERENCES core.player(player_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    plate_appearance_id BIGINT
-        REFERENCES core.plate_appearance(plate_appearance_id)
+    plate_appearance_id UUID
+        REFERENCES core.plate_appearances(plate_appearance_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    pitch_id BIGINT
-        REFERENCES core.pitch(pitch_id)
+    pitch_id UUID
+        REFERENCES core.pitches(pitch_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
     prediction_timestamp TIMESTAMPTZ NOT NULL,
@@ -144,8 +144,8 @@ COMMENT ON TABLE ml.simulation_run IS
 CREATE TABLE IF NOT EXISTS ops.live_game_poller (
     live_game_poller_id BIGSERIAL PRIMARY KEY,
     mlbam_game_pk BIGINT NOT NULL,
-    game_id BIGINT
-        REFERENCES core.game(game_id)
+    game_id UUID
+        REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
     poll_status TEXT NOT NULL DEFAULT 'queued',

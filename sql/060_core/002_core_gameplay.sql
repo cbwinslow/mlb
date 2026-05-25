@@ -1,156 +1,59 @@
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS core.roster_assignment (
-    roster_assignment_id BIGSERIAL PRIMARY KEY,
-    game_id BIGINT NOT NULL
-        REFERENCES core.game(game_id)
-        ON UPDATE RESTRICT
-        ON DELETE CASCADE,
-    team_id BIGINT NOT NULL
-        REFERENCES core.team(team_id)
-        ON UPDATE RESTRICT
-        ON DELETE RESTRICT,
-    player_id BIGINT NOT NULL
-        REFERENCES core.player(player_id)
-        ON UPDATE RESTRICT
-        ON DELETE RESTRICT,
-    source_role_code TEXT,
-    batting_order_slot SMALLINT,
-    field_position_code SMALLINT,
-    starter_flag BOOLEAN NOT NULL DEFAULT FALSE,
-    substitute_flag BOOLEAN NOT NULL DEFAULT FALSE,
-    lineup_sequence INT,
-    entered_inning SMALLINT,
-    exited_inning SMALLINT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- 1. Canonical Game Matrix Table
+CREATE TABLE IF NOT EXISTS core.games (
+    game_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    venue_id        UUID NOT NULL,
+    home_team_id    UUID NOT NULL,
+    away_team_id    UUID NOT NULL,
+    game_date       DATE NOT NULL,
+    season          INT NOT NULL,
+    home_score      SMALLINT DEFAULT 0,
+    away_score      SMALLINT DEFAULT 0,
+    official_status VARCHAR(20) NOT NULL, -- 'preview', 'live', 'final'
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-COMMENT ON TABLE core.roster_assignment IS
-    'Game-level roster, lineup, and defensive assignment facts.';
+COMMENT ON TABLE core.games IS 'Canonical game entity linking venue and teams.';
 
-CREATE TABLE IF NOT EXISTS core.plate_appearance (
-    plate_appearance_id BIGSERIAL PRIMARY KEY,
-    game_id BIGINT NOT NULL
-        REFERENCES core.game(game_id)
-        ON UPDATE RESTRICT
-        ON DELETE CASCADE,
-    batting_team_id BIGINT NOT NULL
-        REFERENCES core.team(team_id)
-        ON UPDATE RESTRICT
-        ON DELETE RESTRICT,
-    fielding_team_id BIGINT NOT NULL
-        REFERENCES core.team(team_id)
-        ON UPDATE RESTRICT
-        ON DELETE RESTRICT,
-    batter_id BIGINT
-        REFERENCES core.player(player_id)
-        ON UPDATE RESTRICT
-        ON DELETE SET NULL,
-    pitcher_id BIGINT
-        REFERENCES core.player(player_id)
-        ON UPDATE RESTRICT
-        ON DELETE SET NULL,
-    inning SMALLINT NOT NULL,
-    inning_half TEXT NOT NULL,
-    plate_appearance_number INT NOT NULL,
-    outs_before SMALLINT,
-    balls_end SMALLINT,
-    strikes_end SMALLINT,
-    start_base_state_code TEXT,
-    end_base_state_code TEXT,
-    runs_scored_on_pa SMALLINT,
-    event_code TEXT,
-    event_text TEXT,
-    hit_type_code TEXT,
-    batted_ball_type_code TEXT,
-    pa_result_group TEXT,
-    ab_flag BOOLEAN,
-    hit_flag BOOLEAN,
-    on_base_flag BOOLEAN,
-    strikeout_flag BOOLEAN,
-    walk_flag BOOLEAN,
-    hbp_flag BOOLEAN,
-    sac_fly_flag BOOLEAN,
-    sac_hit_flag BOOLEAN,
-    gidp_flag BOOLEAN,
-    rbi INT,
-    woba_value NUMERIC(8,5),
-    run_expectancy_delta NUMERIC(10,5),
-    win_expectancy_delta NUMERIC(10,5),
-    source_system_code TEXT,
-    source_pa_key TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT core_plate_appearance_unique
-        UNIQUE (game_id, inning, inning_half, plate_appearance_number)
+-- 2. Decoupled Plate Appearance Event Layer (Dense Event Grain)
+CREATE TABLE IF NOT EXISTS core.plate_appearances (
+    plate_appearance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    game_id             UUID NOT NULL REFERENCES core.games(game_id) ON DELETE RESTRICT,
+    batter_id           UUID NOT NULL, -- Resolved canonical player link
+    pitcher_id          UUID NOT NULL, -- Resolved canonical player link
+    inning              SMALLINT NOT NULL,
+    half_inning         CHAR(1) NOT NULL CHECK (half_inning IN ('T', 'B')),
+    outs_before         SMALLINT NOT NULL CHECK (outs_before BETWEEN 0 AND 2),
+    pa_sequence_order   SMALLINT NOT NULL, -- Strict incremental game order sorting
+    event_result_code   VARCHAR(30) NOT NULL, -- e.g., 'strikeout', 'walk', 'single'
+    data_source_lineage VARCHAR(30) NOT NULL, -- 'retrosheet', 'mlb_api'
+    workspace_id        UUID NULL,             -- Supports enterprise RLS multi-tenancy
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-COMMENT ON TABLE core.plate_appearance IS
-    'Canonical plate appearance fact, sourced from Retrosheet/Chadwick and enriched with Statcast or MLB StatsAPI where available.';
+COMMENT ON TABLE core.plate_appearances IS 'Plate appearance facts, one row per PA, decoupled from pitch telemetry.';
 
-CREATE TABLE IF NOT EXISTS core.pitch (
-    pitch_id BIGSERIAL PRIMARY KEY,
-    game_id BIGINT NOT NULL
-        REFERENCES core.game(game_id)
-        ON UPDATE RESTRICT
-        ON DELETE CASCADE,
-    plate_appearance_id BIGINT
-        REFERENCES core.plate_appearance(plate_appearance_id)
-        ON UPDATE RESTRICT
-        ON DELETE SET NULL,
-    batter_id BIGINT
-        REFERENCES core.player(player_id)
-        ON UPDATE RESTRICT
-        ON DELETE SET NULL,
-    pitcher_id BIGINT
-        REFERENCES core.player(player_id)
-        ON UPDATE RESTRICT
-        ON DELETE SET NULL,
-    inning SMALLINT NOT NULL,
-    inning_half TEXT NOT NULL,
-    plate_appearance_number INT,
-    pitch_number INT NOT NULL,
-    outs_before SMALLINT,
-    balls_before SMALLINT,
-    strikes_before SMALLINT,
-    pitch_type_code TEXT,
-    pitch_name TEXT,
-    pitch_call_code TEXT,
-    pitch_call_text TEXT,
-    release_speed NUMERIC(8,3),
-    effective_speed NUMERIC(8,3),
-    release_spin_rate NUMERIC(10,3),
-    release_extension NUMERIC(10,3),
-    spin_axis NUMERIC(8,3),
-    plate_x NUMERIC(10,5),
-    plate_z NUMERIC(10,5),
-    sz_top NUMERIC(10,5),
-    sz_bot NUMERIC(10,5),
-    zone SMALLINT,
-    pfx_x NUMERIC(10,5),
-    pfx_z NUMERIC(10,5),
-    vx0 NUMERIC(12,6),
-    vy0 NUMERIC(12,6),
-    vz0 NUMERIC(12,6),
-    ax NUMERIC(12,6),
-    ay NUMERIC(12,6),
-    az NUMERIC(12,6),
-    launch_speed NUMERIC(8,3),
-    launch_angle NUMERIC(8,3),
-    hit_distance_sc INT,
-    events TEXT,
-    description TEXT,
-    estimated_ba_using_speedangle NUMERIC(8,5),
-    estimated_woba_using_speedangle NUMERIC(8,5),
-    delta_run_exp NUMERIC(10,5),
-    delta_home_win_exp NUMERIC(10,5),
-    source_system_code TEXT,
-    source_pitch_key TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT core_pitch_unique
-        UNIQUE (game_id, inning, inning_half, plate_appearance_number, pitch_number)
+-- 3. Pitch Level/Telemetry Array (Granular Physical Sub-Layer)
+CREATE TABLE IF NOT EXISTS core.pitches (
+    pitch_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    plate_appearance_id UUID NOT NULL REFERENCES core.plate_appearances(plate_appearance_id) ON DELETE CASCADE,
+    pitch_sequence_num  SMALLINT NOT NULL, -- 1st pitch, 2nd pitch of the plate appearance
+    balls_before        SMALLINT NOT NULL CHECK (balls_before BETWEEN 0 AND 3),
+    strikes_before      SMALLINT NOT NULL CHECK (strikes_before BETWEEN 0 AND 2),
+    pitch_type          CHAR(2),           -- 'FF', 'SL', 'CH', 'CU'
+    pitch_call          CHAR(1),           -- 'S' (swinging strike), 'C' (called strike), 'B' (ball), 'X' (in play)
+    -- Statcast physical tracking block (nullable to guarantee multi-era compatibility)
+    release_velocity    NUMERIC(4,1),
+    spin_rate           SMALLINT,
+    induced_vertical_break NUMERIC(4,2),
+    horizontal_break    NUMERIC(4,2),
+    plate_x             NUMERIC(4,2),
+    plate_z             NUMERIC(4,2),
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uniq_pitch_per_pa UNIQUE (plate_appearance_id, pitch_sequence_num)
 );
 
-COMMENT ON TABLE core.pitch IS
-    'Canonical pitch fact centered on Statcast pitch-level structure and linked to canonical game and plate appearance facts.';
+COMMENT ON TABLE core.pitches IS 'Pitch telemetry linked to a plate appearance; sparse for historical eras.';
 
 COMMIT;

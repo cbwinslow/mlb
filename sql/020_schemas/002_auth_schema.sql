@@ -102,10 +102,7 @@ CREATE TABLE IF NOT EXISTS auth.api_key (
 
 CREATE TABLE IF NOT EXISTS auth.data_source_control (
     data_source_control_id BIGSERIAL PRIMARY KEY,
-    source_system_id BIGINT NOT NULL
-        REFERENCES meta.source_system(source_system_id)
-        ON UPDATE RESTRICT
-        ON DELETE CASCADE,
+    source_system_id BIGINT NOT NULL,
     enabled_for_ingest BOOLEAN NOT NULL DEFAULT TRUE,
     enabled_for_serving BOOLEAN NOT NULL DEFAULT TRUE,
     legal_hold BOOLEAN NOT NULL DEFAULT FALSE,
@@ -129,10 +126,7 @@ CREATE TABLE IF NOT EXISTS auth.workspace_source_entitlement (
         REFERENCES auth.workspace(workspace_id)
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
-    source_system_id BIGINT NOT NULL
-        REFERENCES meta.source_system(source_system_id)
-        ON UPDATE RESTRICT
-        ON DELETE CASCADE,
+    source_system_id BIGINT NOT NULL,
     can_view_source_data BOOLEAN NOT NULL DEFAULT TRUE,
     can_trigger_ingest BOOLEAN NOT NULL DEFAULT FALSE,
     can_use_for_modeling BOOLEAN NOT NULL DEFAULT TRUE,

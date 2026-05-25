@@ -92,7 +92,7 @@ raw_statcast.pitch
                                           │
   ┌───────────────────────────────────────┼───────────────────────┐
   │                                       │                       │
-core.pitch                       core.plate_appearance     core.roster_assignment
+core.pitches                     core.plate_appearances     core.roster_assignment
   └── player_id (FK)               └── batter_id (FK)        └── player_id (FK)
 ```
 

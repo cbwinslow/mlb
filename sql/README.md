@@ -30,8 +30,10 @@ sql/
 │   └── 006_raw_web_sources.sql
 ├── 050_staging/
 │   ├── 001_identity_bridge.sql
-│   ├── 002_game_bridge.sql
-│   └── 003_source_conformance.sql
+│   ├── 002_identity_trigger_and_indexes.sql
+│   ├── 003_game_identity.sql
+│   ├── 005_game_identity_bridge.sql
+│   └── 006_source_conformance.sql
 ├── 060_core/
 │   ├── 001_core_entities.sql
 │   ├── 002_core_gameplay.sql
@@ -46,7 +48,8 @@ sql/
 │   ├── 006_marts_materialized_views.sql
 │   ├── 007_ingestion_orchestration.sql
 │   ├── 008_api_service_contracts.sql
-│   └── 009_source_ingestion_specs.sql
+│   ├── 009_source_ingestion_specs.sql
+│   └── 011_mart_views.sql
 ├── 080_functions/
 │   ├── 001_meta_functions.sql
 │   ├── 002_retrosheet_chadwick_functions.sql
@@ -132,5 +135,5 @@ That means the database layer is no longer just conceptual design; it already co
 ## Immediate improvements
 
 - Add a small shell script or Make target that applies every SQL file in folder and filename order using `psql -v ON_ERROR_STOP=1`.[1]
-- Add a smoke-test query file that verifies key schemas and representative tables exist after bootstrap, such as `meta.ingest_run`, `raw_retrosheet.record`, `core.game`, `ml.prediction_output`, and `ops.job_queue`.[1]
+- Add a smoke-test query file that verifies key schemas and representative tables exist after bootstrap, such as `meta.ingest_run`, `raw_retrosheet.record`, `core.games`, `ml.prediction_output`, and `ops.job_queue`.[1]
 - Keep this README updated whenever a new numbered SQL file is added or execution order changes.[1]

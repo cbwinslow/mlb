@@ -22,6 +22,24 @@ classifiers = [
   "Topic :: Database",
   "Topic :: Scientific/Engineering :: Information Analysis"
 ]
+dependencies = [
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.29",
+    "typer[all]>=0.12",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "python-dotenv>=1.0",
+    "rich>=13.7",
+    # Player identity enrichment worker
+    "psycopg2-binary>=2.9",
+    "python-mlb-statsapi>=0.4",
+    "pybaseball>=2.2",
+    "pytest-cov>=7.1.0",
+    "pytest>=9.0.3",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.14",
+    "pylint>=4.0.5",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/cbwinslow/mlb"
@@ -29,19 +47,6 @@ classifiers = [
 
 [project.scripts]
 baseball = "baseball.cli:app"
-
-[project.dependencies]
-sqlalchemy = ">=2.0"
-asyncpg = ">=0.29"
-typer = { version = ">=0.12", extras = ["all"] }
-pydantic = ">=2.8"
-pydantic-settings = ">=2.4"
-python-dotenv = ">=1.0"
-rich = ">=13.7"
-# Player identity enrichment worker
-psycopg2-binary = ">=2.9"
-python-mlb-statsapi = ">=0.4"
-pybaseball = ">=2.2"
 
 [tool.hatch.build.targets.wheel]
 packages = ["baseball"]
