@@ -43,7 +43,7 @@ jobs:
     env:
       MLB_DB_DSN: ${{ secrets.MLB_DB_DSN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:
@@ -99,7 +99,7 @@ jobs:
       github.event.inputs.job == 'enrichment-dry-run'
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:
