@@ -19,7 +19,7 @@ permissions:
 jobs:
   python-lint:
     name: "ruff + black + isort + mypy"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
@@ -68,7 +68,7 @@ jobs:
 
   sql-lint:
     name: "sqlfluff (postgres dialect)"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +97,7 @@ jobs:
 
   yaml-lint:
     name: "yamllint"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
       - uses: ibiqlik/action-yamllint@v3
@@ -113,7 +113,7 @@ jobs:
 
   pre-commit:
     name: "Pre-commit hooks"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
