@@ -45,7 +45,14 @@ See `plans/refactor-blueprint.md` for details and the updated DDL in `sql/060_co
 
 ## Current phase
 
-This project is in the foundational platform phase. The SQL schema design and documentation are ahead of the application layer. Immediate next steps are:
+This project is in the foundational platform phase. The SQL schema design and documentation are ahead of the application layer. Completed work:
+
+- ✅ Full SQL schema with 9 pipeline layers (`sql/010_` through `sql/090_`)
+- ✅ Python ingestion framework with CLI (`baseball ingest *`, `baseball enrich`)
+- ✅ Test suite with 197 passing tests
+- ✅ Configuration fixes: `pyproject.toml` dev dependencies, `.gitignore` cleanup
+
+Immediate next steps are:
 
 1. Define the Python project structure for ingestion workers and API service
 2. Map worker responsibilities to `ops` and `meta` contracts

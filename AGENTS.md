@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-25 (code review fixes, DEC-010/DEC-011 complete, Python ingestion components)
+> Last updated: 2026-05-25 (configuration fixes complete, pyproject.toml, .gitignore, Python linting)
 
 ---
 
@@ -148,6 +148,11 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] **Issue #17:** Create ingestion Python components
     - Files: `baseball/ingestion/orchestrator.py`, `baseball/ingestion/loaders.py`, `baseball/ingestion/engine.py`
     - Added ingest commands to CLI: `baseball ingest lahman`, `baseball ingest retrosheet`, etc.
+- [x] **Configuration fixes:** Fix `pyproject.toml` dev dependencies, `.gitignore` cleanup, Python linting issues
+    - Moved dev dependencies to `[project.optional-dependencies] dev` in `pyproject.toml`
+    - Removed redundant `.refact/buddy/` entries from `.gitignore`
+    - Fixed Python linting issues in `engine.py`, `loaders.py`, `orchestrator.py`, `enrich_player_identity.py`, `cli.py`, `settings.py`
+    - All 197 tests passing
 
 ### Outstanding 🔲
 - [ ] **Next:** Alembic integration — manual DDL in `sql/` + Alembic version tracking only (DEC-009); see ROADMAP.md Milestone 2
@@ -165,6 +170,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] Updated `docs/github-workflow.md` issue title example
 - [x] Created `docs/audit_checklist.md` with audit verification
 - [x] Updated `AGENTS.md` with new typed tables and Python components
+- [x] Updated `README.md` project status section with completed work
 
 ---
 
