@@ -1,0 +1,40 @@
+# Codecov configuration
+# https://docs.codecov.com/docs/codecovyml-reference
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        if_not_found: success
+        if_ci_failed: error
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+        if_not_found: success
+
+ignore:
+  - "**/__pycache__/**"
+  - "**/*.pyc"
+  - "tests/**"
+  - "scripts/**"
+  - ".github/**"
+
+parsers:
+  python:
+    use_pyproject: false
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+flags:
+  unittests:
+    paths:
+      - baseball/
+    carryforward: true
