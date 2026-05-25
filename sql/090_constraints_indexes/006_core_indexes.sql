@@ -15,13 +15,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS core_team_mlbam_uidx
     ON core.team (mlbam_team_id)
     WHERE mlbam_team_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS core_game_mlbam_uidx
-    ON core.games (mlbam_game_pk)
-    WHERE mlbam_game_pk IS NOT NULL;
+-- NOTE: core_game_mlbam_uidx removed -- mlbam_game_pk now lives in stg.game_identity_bridge
+-- NOTE: core_game_retrosheet_uidx removed -- retrosheet_game_id now lives in stg.game_identity_bridge
 
-CREATE UNIQUE INDEX IF NOT EXISTS core_game_retrosheet_uidx
-    ON core.games (retrosheet_game_id)
-    WHERE retrosheet_game_id IS NOT NULL;
+
+-- Source key uniqueness is enforced by pk_game_identity_bridge PRIMARY KEY
+-- These supplemental indexes support fast lookup on the bridge
+CREATE INDEX IF NOT EXISTS idx_stg_game_bridge_season
+    ON stg.game_identity_bridge (season, game_date);
+
+CREATE INDEX IF NOT EXISTS idx_stg_game_bridge_home_team
+    ON stg.game_identity_bridge (home_team_code, season);
 
 CREATE INDEX IF NOT EXISTS core_game_date_idx
     ON core.games (game_date, season);

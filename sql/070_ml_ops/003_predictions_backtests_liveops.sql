@@ -66,11 +66,11 @@ CREATE TABLE IF NOT EXISTS ml.prediction_output (
         REFERENCES core.games(game_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    team_id UUID
+    team_id BIGINT
         REFERENCES core.team(team_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id UUID
+    player_id BIGINT
         REFERENCES core.player(player_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,

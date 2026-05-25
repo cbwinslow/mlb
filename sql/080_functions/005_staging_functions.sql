@@ -90,7 +90,11 @@ CREATE OR REPLACE FUNCTION util.ingest_chadwick_play(
     p_induced_vertical_break NUMERIC(4,2),
     p_horizontal_break NUMERIC(4,2),
     p_plate_x NUMERIC(4,2),
-    p_plate_z NUMERIC(4,2)
+    p_plate_z NUMERIC(4,2),
+    -- Game identity context: pass actual game date and team codes from source record
+    p_game_date DATE,
+    p_home_team_code CHAR(3),
+    p_away_team_code CHAR(3)
 )
 RETURNS UUID  -- Returns the pitch_id
 LANGUAGE plpgsql
@@ -100,9 +104,9 @@ DECLARE
     v_canonical_game_id UUID;
 BEGIN
     -- First, resolve or create the game identity using the bridge
-    -- This follows blueprint section 4.1 for staging.game_identity_bridge
+    -- This follows blueprint section 4.1 for stg.game_identity_bridge
     WITH game_bridge AS (
-        INSERT INTO staging.game_identity_bridge (
+        INSERT INTO stg.game_identity_bridge (
             source_system,
             source_game_key,
             season,
@@ -115,18 +119,19 @@ BEGIN
                 WHEN p_game_id_text ~ '^[A-Z]{3}[0-9]{8}[0-9]$' THEN 'retrosheet'  -- Retrosheet pattern
                 ELSE 'chadwick'  -- Chadwick pattern
             END AS source_system,
-            p_game_id_text AS source_game_key,
-            EXTRACT(YEAR FROM CURRENT_DATE)::INT AS season,  -- Would need actual game date
-            CURRENT_DATE AS game_date,  -- Would need actual game date
-            'XXX' AS home_team_code,  -- Would need actual team codes
-            'XXX' AS away_team_code   -- Would need actual team codes
-        ON CONFLICT (source_system, source_game_key) 
+            p_game_id_text                      AS source_game_key,
+            EXTRACT(YEAR FROM p_game_date)::INT AS season,
+            p_game_date                         AS game_date,
+            p_home_team_code                    AS home_team_code,
+            p_away_team_code                    AS away_team_code
+        ON CONFLICT (source_system, source_game_key)
         DO UPDATE SET
-            season = EXCLUDED.season,
-            game_date = EXCLUDED.game_date,
+            -- Never overwrite canonical_game_id — the first-inserted UUID is authoritative
+            season         = EXCLUDED.season,
+            game_date      = EXCLUDED.game_date,
             home_team_code = EXCLUDED.home_team_code,
-            away_team_code = EXCLUDED.away_team_code,
-            created_at = NOW()
+            away_team_code = EXCLUDED.away_team_code
+            -- created_at intentionally not updated to preserve first-seen timestamp
         RETURNING canonical_game_id
     )
     SELECT canonical_game_id INTO v_canonical_game_id FROM game_bridge;
