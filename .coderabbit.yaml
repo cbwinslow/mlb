@@ -1,10 +1,6 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: en-US
-tone_instructions: |
-  Be direct and technical. No compliments. Flag real problems only.
-  PostgreSQL analytics platform for MLB data.
-  Architecture: raw -> staging -> canonical -> mart + MCP agent layer.
-  Stack: Python 3.12, PostgreSQL 16, psycopg3, SQLAlchemy 2.x, ruff, pytest.
+tone_instructions: "Be direct and technical. No compliments. Flag real problems only. PostgreSQL MLB analytics: raw->stg->core->mart. Python 3.12, PostgreSQL 16, psycopg3, SQLAlchemy 2, ruff, pytest."
 
 reviews:
   profile: assertive
