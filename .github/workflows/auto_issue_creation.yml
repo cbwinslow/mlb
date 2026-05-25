@@ -14,7 +14,7 @@ permissions:
 jobs:
   create-issues-from-review:
     name: Parse review and create GitHub issues
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     # Only run when a review has comments (changes_requested or comment)
     if: |
       github.event_name == 'pull_request_review' &&
@@ -136,7 +136,7 @@ jobs:
 
   create-issue-on-demand:
     name: Create issue on @mlb-bot mention
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     # Trigger when someone comments "@mlb-bot create issue" on a PR
     if: |
       github.event_name == 'issue_comment' &&
