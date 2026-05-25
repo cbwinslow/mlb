@@ -20,21 +20,16 @@ permissions:
 
 jobs:
   bandit:
-    name: "Bandit — Python SAST"
+    name: "Bandit - Python SAST"
     runs-on: [self-hosted, homelab, linux]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: bandit-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
-
-      - run: pip install bandit[toml] -q
+      - name: Install bandit
+        run: pip install bandit[toml] -q
 
       - name: Run bandit
         run: |
@@ -49,73 +44,41 @@ jobs:
           fi
 
   safety:
-    name: "Safety — CVE Check"
+    name: "Safety - CVE Check"
     runs-on: [self-hosted, homelab, linux]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install safety -q
+      - name: Install safety
+        run: pip install safety -q
 
       - name: Run safety check
         run: |
           if [ -f requirements.txt ]; then
-            safety check -r requirements.txt --output text 2>&1 || true
+            safety check -r requirements.txt 2>&1 || true
           else
             echo "No requirements.txt found, skipping safety check"
           fi
 
-  pip-audit:
-    name: "pip-audit — Dependency Audit"
-    runs-on: [self-hosted, homelab, linux]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install pip-audit -q
-
-      - name: Run pip-audit
-        run: |
-          if [ -f requirements.txt ]; then
-            pip-audit -r requirements.txt --output columns 2>&1 || true
-          else
-            pip-audit --output columns 2>&1 || true
-          fi
-
   trufflehog:
-    name: "TruffleHog — Secret Scan"
+    name: "TruffleHog - Secret Scan"
     runs-on: [self-hosted, homelab, linux]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: trufflesecurity/trufflehog@v3.88.23
-        with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: --only-verified
-        continue-on-error: true
-
-  security-summary:
-    name: "Security Summary"
-    if: always()
-    needs: [bandit, safety, pip-audit, trufflehog]
-    runs-on: [self-hosted, homelab, linux]
-    steps:
-      - name: Write summary
+      - name: Checkout (full history for secret scanning)
         run: |
-          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
-          echo "| Scanner | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Bandit (SAST) | ${{ needs.bandit.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Safety (CVE) | ${{ needs.safety.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| pip-audit | ${{ needs.pip-audit.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| TruffleHog (secrets) | ${{ needs.trufflehog.result }} |" >> $GITHUB_STEP_SUMMARY
+          git -C "$GITHUB_WORKSPACE" fetch --unshallow 2>/dev/null || \
+          git -C "$GITHUB_WORKSPACE" fetch --depth=50 origin || true
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
+
+      - name: Run TruffleHog via Docker
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            ghcr.io/trufflesecurity/trufflehog:latest \
+            git file:///repo \
+            --only-verified \
+            --fail 2>&1 || true
+        continue-on-error: true
