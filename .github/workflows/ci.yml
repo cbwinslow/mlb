@@ -76,7 +76,7 @@ jobs:
     needs: [test]
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v6
+
       - name: Validate all Python ASTs
         run: |
           python3 <<'PY'
