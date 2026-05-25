@@ -46,7 +46,7 @@ Refactor or replace the contents to ensure a single, authoritative mapping cente
 ```sql
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS staging.game_identity_bridge (
+CREATE TABLE IF NOT EXISTS stg.game_identity_bridge (
     canonical_game_id UUID NOT NULL DEFAULT gen_random_uuid(),
     source_system     VARCHAR(30) NOT NULL, -- 'retrosheet', 'mlb_api', 'statcast'
     source_game_key   VARCHAR(50) NOT NULL, -- e.g., 'BOS202604010' or '747124'
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS staging.game_identity_bridge (
 );
 
 CREATE INDEX IF NOT EXISTS idx_stg_game_bridge_canonical 
-ON staging.game_identity_bridge(canonical_game_id);
+ON stg.game_identity_bridge(canonical_game_id);
 
 COMMIT;
 
@@ -205,7 +205,7 @@ We will execute the refactoring blueprint outlined in refactor-blueprint.md. The
    - Ensure all tables are created with `IF NOT EXISTS` and wrapped in `BEGIN; … COMMIT;`.
    - Add appropriate comments, indexes, and triggers (`updated_at` where needed).
 3. **Staging Adjustments**
-   - Implement `staging.game_identity_bridge` (new authoritative mapping table).
+   - Implement `stg.game_identity_bridge` (new authoritative mapping table).
    - Update any downstream staging scripts that reference the old bridge.
 4. **Views & Functions**
    - Update `core.v_unified_plate_appearances` view.
@@ -235,7 +235,7 @@ We will execute the refactoring blueprint outlined in refactor-blueprint.md. The
 | **4. Add Game Identity Bridge** | Create/replace 005_game_identity_bridge.sql with the blueprint SQL (BEGIN…COMMIT). | New file 005_game_identity_bridge.sql | Use `CREATE TABLE IF NOT EXISTS` and the index definition. |
 | **5. Refactor Core Gameplay** | Replace the entire content of 002_core_gameplay.sql with the three‑table definition (games, plate_appearances, pitches) from the blueprint. | 002_core_gameplay.sql | Keep existing `BEGIN; … COMMIT;`. Add `COMMENT ON TABLE` and `COMMENT ON COLUMN` for any non‑obvious fields. |
 | **6. Update Serving Views** | Modify 005_serving_views.sql to include the new `core.v_unified_plate_appearances` view definition. | 005_serving_views.sql | Ensure view references the new tables. |
-| **7. Adjust Ingestion Functions** | In 003_statcast_mlbapi_functions.sql and 005_staging_functions.sql: <br>• Insert logic to resolve/create a `canonical_game_id` via `staging.game_identity_bridge`. <br>• Insert a row into `core.plate_appearances` and capture its UUID. <br>• Use that UUID when inserting into `core.pitches`. | `sql/080_functions/*.sql` | Add necessary `RETURNING` clauses and error handling. |
+| **7. Adjust Ingestion Functions** | In 003_statcast_mlbapi_functions.sql and 005_staging_functions.sql: <br>• Insert logic to resolve/create a `canonical_game_id` via `stg.game_identity_bridge`. <br>• Insert a row into `core.plate_appearances` and capture its UUID. <br>• Use that UUID when inserting into `core.pitches`. | `sql/080_functions/*.sql` | Add necessary `RETURNING` clauses and error handling. |
 | **8. Verify Constraints & Indexes** | Review 006_core_indexes.sql. Add/adjust indexes: <br>• `core.plate_appearances(game_id, batter_id, pitcher_id)` <br>• `core.pitches(plate_appearance_id)` <br>• Ensure FK constraints reference the new tables. | 006_core_indexes.sql | Use `IF NOT EXISTS` for each index. |
 | **9. Update Documentation – Core** | • Update architecture.md to show new core tables and relationships. <br>• Revise data-dictionary.md with column definitions for `core.games`, `core.plate_appearances`, `core.pitches`. <br>• Add a “Schema Refactor” subsection in OBJECTIVES.md. | `docs/*.md`, OBJECTIVES.md | Keep existing diagrams up‑to‑date (Mermaid if used). |
 | **10. Update README & Project Summary** | • Reflect new migration flow (raw → staging → core). <br>• Mention the new `game_identity_bridge` table. <br>• Update badge/status for “Schema Refactor – Completed”. | README.md, project-summary.md | Ensure links to the new SQL files are correct. |
@@ -252,7 +252,7 @@ We will execute the refactoring blueprint outlined in refactor-blueprint.md. The
 
 | Test | Description | Location |
 |------|-------------|----------|
-| **Schema Creation Test** | Verify that `bootstrap_db.sh` creates all new tables (`core.games`, `core.plate_appearances`, `core.pitches`, `staging.game_identity_bridge`) and that the old tables are not recreated. | `tests/sql/test_schema_creation.py` |
+| **Schema Creation Test** | Verify that `bootstrap_db.sh` creates all new tables (`core.games`, `core.plate_appearances`, `core.pitches`, `stg.game_identity_bridge`) and that the old tables are not recreated. | `tests/sql/test_schema_creation.py` |
 | **View Logic Test** | Insert a plate appearance with and without associated pitches; assert `core.v_unified_plate_appearances.has_pitch_telemetry` returns correct boolean. | `tests/sql/test_unified_view.py` |
 | **Ingestion Function Test** | Mock a Statcast JSON payload; run the ingestion function and assert that a row appears in `core.plate_appearances` and related rows in `core.pitches`. | `tests/python/test_ingestion_functions.py` |
 | **Index Presence Test** | Query `pg_indexes` to ensure required indexes exist and are unique where specified. | `tests/sql/test_indexes.py` |

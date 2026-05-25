@@ -330,7 +330,7 @@ All open questions resolved. See Decision Log.
 
 ---
 
-## 8. Schema Refactor (May 2026)
+## 8a. Schema Refactor (May 2026)
 
 ### Summary
 The core gameplay schema was refactored to decouple plate appearances from pitch telemetry and introduce a canonical game identity bridge. This enables support for both historical (Lahman, Retrosheet) and modern high-fidelity (Statcast) data sources.

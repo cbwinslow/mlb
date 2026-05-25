@@ -245,7 +245,7 @@ Lahman is already relational and explicitly documents tables like `People` and `
 
 **Files created:**
 - `sql/050_staging/001_identity_bridge.sql`
-- `sql/050_staging/004_game_identity_bridge.sql`
+- `sql/050_staging/005_game_identity_bridge.sql`
 - `sql/050_staging/005_source_conformance.sql`
 - `sql/090_constraints_indexes/005_staging_indexes.sql`
 - `sql/080_functions/005_staging_functions.sql`

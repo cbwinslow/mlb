@@ -48,11 +48,7 @@ SELECT
     pa.half_inning,
     pa.event_result_code,
     pa.data_source_lineage,
-    CASE 
-        WHEN EXISTS (SELECT 1 FROM core.pitches p WHERE p.plate_appearance_id = pa.plate_appearance_id) 
-        THEN TRUE 
-        ELSE FALSE 
-    END AS has_pitch_telemetry
+    EXISTS (SELECT 1 FROM core.pitches p WHERE p.plate_appearance_id = pa.plate_appearance_id) AS has_pitch_telemetry
 FROM core.plate_appearances pa
 JOIN core.games g ON pa.game_id = g.game_id;
 

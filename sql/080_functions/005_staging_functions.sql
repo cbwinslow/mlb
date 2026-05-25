@@ -66,7 +66,7 @@ AS $$
         END;
 $$;
 
--- Chadwick/Rettrosheet ingestion function to insert into core.plate_appearances and core.pitches
+-- Chadwick/Retrosheet ingestion function to insert into core.plate_appearances and core.pitches
 -- Following blueprint section 5.1: write to core.plate_appearances, capture UUID, use for core.pitches
 CREATE OR REPLACE FUNCTION util.ingest_chadwick_play(
     p_game_id_text TEXT,  -- Retrosheet game ID or Chadwick equivalent
@@ -102,6 +102,7 @@ AS $$
 DECLARE
     v_plate_appearance_id UUID;
     v_canonical_game_id UUID;
+    v_pitch_id UUID;
 BEGIN
     -- First, resolve or create the game identity using the bridge
     -- This follows blueprint section 4.1 for stg.game_identity_bridge
@@ -196,7 +197,9 @@ BEGIN
         p_plate_z,
         NOW()
     )
-    RETURNING pitch_id;
+    RETURNING pitch_id INTO v_pitch_id;
+
+    RETURN v_pitch_id;
 
 EXCEPTION
     WHEN OTHERS THEN

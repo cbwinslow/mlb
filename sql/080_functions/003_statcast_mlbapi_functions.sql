@@ -121,6 +121,7 @@ AS $$
 DECLARE
     v_plate_appearance_id UUID;
     v_canonical_game_id UUID;
+    v_pitch_id UUID;
 BEGIN
     -- First, resolve or create the game identity using the bridge
     -- This follows blueprint section 4.1 for stg.game_identity_bridge
@@ -212,7 +213,9 @@ BEGIN
         p_plate_z,
         NOW()
     )
-    RETURNING pitch_id;
+    RETURNING pitch_id INTO v_pitch_id;
+
+    RETURN v_pitch_id;
 
 EXCEPTION
     WHEN OTHERS THEN
