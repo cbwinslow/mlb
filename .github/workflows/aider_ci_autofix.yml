@@ -1,6 +1,6 @@
 name: Aider CI Auto-Fix via OpenRouter (free top models)
 
-on:
+onLinux,:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
