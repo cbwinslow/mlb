@@ -48,7 +48,7 @@ def db_init() -> None:
 
     console.print(table)
     console.print(
-        "[yellow]NOTE:[/] db-init is currently a dry run stub. Implementation will be added next."
+        "[yellow]NOTE:[/] db-init is a dry run stub. Implementation pending."
     )
 
 
@@ -70,7 +70,7 @@ def db_smoke() -> None:
 
     console.print(table)
     console.print(
-        "[yellow]NOTE:[/] db-smoke is currently a dry run stub. Implementation will be added next."
+        "[yellow]NOTE:[/] db-smoke is a dry run stub. Implementation pending."
     )
 
 
@@ -99,7 +99,7 @@ except ImportError:
     # Optional deps missing — register a stub that explains what to install.
     _stub = typer.Typer(
         name="enrich-identities",
-        help="Player identity enrichment worker (requires psycopg2, python-mlb-statsapi, pybaseball).",
+        help="Player identity enrichment worker.",
     )
 
     @_stub.callback(invoke_without_command=True)

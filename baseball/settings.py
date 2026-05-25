@@ -25,7 +25,7 @@ class DatabaseSettings(BaseModel):
     schema_search_path: Optional[str] = Field(
         None,
         alias="DB_SCHEMA_SEARCH_PATH",
-        description="Comma-separated list of schemas to include in the PostgreSQL search_path.",
+        description="Comma-separated schemas for PostgreSQL search_path.",
     )
 
 
@@ -35,7 +35,7 @@ class WorkspaceSettings(BaseModel):
     default_workspace_code: str = Field(
         "local-dev",
         alias="DEFAULT_WORKSPACE_CODE",
-        description="Logical workspace code used when a specific workspace is not provided.",
+        description="Default workspace code when not provided.",
     )
 
 
