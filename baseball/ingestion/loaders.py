@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import aiohttp
-from psycopg_pool import AsyncConnectionPool
 
 
 class HistoricalLoaderFactory:

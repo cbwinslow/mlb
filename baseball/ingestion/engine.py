@@ -10,7 +10,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import psycopg
 from psycopg_pool import AsyncConnectionPool
 
 log = logging.getLogger(__name__)
@@ -98,11 +97,14 @@ class IngestEngine:
                 extra_sql += f", {key} = %({key})s"
                 extra_values[key] = value
 
+            extra_sql_values = (
+                ", ".join([f"%({k})s" for k in extra_columns]) if extra_columns else ""
+            )
             sql = f"""
                 INSERT INTO {table_name}
                     (response_json, ingest_run_id{extra_sql}, created_at)
                 VALUES
-                    (%(json_data)s, %(ingest_run_id)s{", " + ", ".join(["%(" + k + ")s" for k in extra_columns]) if extra_columns else ""}, NOW())
+                    (%(json_data)s, %(ingest_run_id)s{extra_sql_values}, NOW())
                 RETURNING {self._get_pk_column(table_name)}
             """
 
@@ -160,7 +162,9 @@ class IngestEngine:
                 VALUES
                     (%(mlbam_id)s, %(full_name)s, %(source)s, 0, NOW(), NOW())
                 ON CONFLICT (mlbam_player_id) DO UPDATE
-                    SET full_name = COALESCE(EXCLUDED.full_name, stg.player_identity.full_name),
+                    SET full_name = COALESCE(
+                        EXCLUDED.full_name, stg.player_identity.full_name
+                    ),
                         updated_at = NOW()
                 RETURNING player_identity_id
             """

@@ -43,7 +43,9 @@ def startingestrun(
     """
     ingest_run_id = uuid.uuid4()
     sql = """
-        INSERT INTO meta.ingest_run (ingest_run_id, source_endpoint_id, run_metadata, started_at)
+        INSERT INTO meta.ingest_run (
+            ingest_run_id, source_endpoint_id, run_metadata, started_at
+        )
         VALUES (%(ingest_run_id)s, %(source_endpoint_id)s, %(run_metadata)s, NOW())
         RETURNING ingest_run_id
     """

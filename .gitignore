@@ -149,10 +149,4 @@ coverage.json
 *.db
 
 # MCP / AI tooling
-.gemini/
-.kilo/
-.opencode/
 .refact/
-.refact/buddy/state.json
-.refact/buddy/memory_ops.jsonl
-.refact/buddy/runtime_queue.jsonl

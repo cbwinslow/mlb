@@ -10,9 +10,11 @@ to auto-promote high-confidence rows and flag the rest for human review.
 
 Usage (standalone):
     python -m baseball.ingestion.enrich_player_identity
-    python -m baseball.ingestion.enrich_player_identity --limit 100 --min-confidence 0.85
+    python -m baseball.ingestion.enrich_player_identity --limit 100 \\
+        --min-confidence 0.85
     python -m baseball.ingestion.enrich_player_identity --dry-run
-    python -m baseball.ingestion.enrich_player_identity --chadwick-seed /tmp/chadwick_people.csv
+    python -m baseball.ingestion.enrich_player_identity \\
+        --chadwick-seed /tmp/chadwick_people.csv
 
 CLI (via baseball CLI):
     baseball enrich-identities
@@ -34,14 +36,13 @@ Architecture notes:
 from __future__ import annotations
 
 import csv
-import io
 import logging
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
