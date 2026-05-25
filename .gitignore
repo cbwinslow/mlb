@@ -156,4 +156,4 @@ coverage.json
 # Temporary files
 *.tmp
 *.temp
-*.bak
+*.bak.refact/buddy/runtime_queue.jsonl

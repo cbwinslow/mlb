@@ -9,7 +9,7 @@ on:
 
 jobs:
   python-ci:
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
 
     steps:
       - name: Check out repository

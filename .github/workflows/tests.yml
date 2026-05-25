@@ -28,7 +28,7 @@ permissions:
 jobs:
   pytest:
     name: "pytest [${{ matrix.test-group }}] py${{ matrix.python-version }}"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     strategy:
       matrix:
         test-group: [all]

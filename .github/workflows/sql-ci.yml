@@ -14,7 +14,7 @@ on:
 
 jobs:
   postgres-bootstrap:
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     services:
       postgres:
         image: postgres:16

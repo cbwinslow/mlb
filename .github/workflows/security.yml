@@ -20,8 +20,8 @@ permissions:
 
 jobs:
   bandit:
-    name: "Bandit - Python SAST"
-    runs-on: [self-hosted, homelab, linux]
+    name: "Bandit — Python SAST"
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - name: Checkout
         run: |
@@ -44,8 +44,8 @@ jobs:
           fi
 
   safety:
-    name: "Safety - CVE Check"
-    runs-on: [self-hosted, homelab, linux]
+    name: "Safety — CVE Check"
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - name: Checkout
         run: |
@@ -63,9 +63,29 @@ jobs:
             echo "No requirements.txt found, skipping safety check"
           fi
 
+  pip-audit:
+    name: "pip-audit — Dependency Audit"
+    runs-on: [self-hosted, homelab, Linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install pip-audit -q
+
+      - name: Run pip-audit
+        run: |
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt --output columns 2>&1 || true
+          else
+            pip-audit --output columns 2>&1 || true
+          fi
+
   trufflehog:
-    name: "TruffleHog - Secret Scan"
-    runs-on: [self-hosted, homelab, linux]
+    name: "TruffleHog — Secret Scan"
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - name: Checkout (full history for secret scanning)
         run: |
@@ -73,7 +93,13 @@ jobs:
           git -C "$GITHUB_WORKSPACE" fetch --depth=50 origin || true
           git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - name: Run TruffleHog via Docker
+  security-summary:
+    name: "Security Summary"
+    if: always()
+    needs: [bandit, safety, pip-audit, trufflehog]
+    runs-on: [self-hosted, homelab, Linux]
+    steps:
+      - name: Write summary
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/repo" \

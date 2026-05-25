@@ -78,7 +78,7 @@ The `core` layer (conformed facts and dimensions) must hold every column that ex
 2. Apply consistent naming and type conventions
 3. Provide a single join-free fact table for analysis
 
-If a column exists in `raw_statcast.pitch` it must exist in `core.pitch`. There is no "we'll add that later" — later never comes and analysts get incorrect results from missing columns.
+If a column exists in `raw_statcast.pitch` it must exist in `core.pitches`. There is no "we'll add that later" — later never comes and analysts get incorrect results from missing columns.
 
 **Mechanism:** Any time a raw table gains a new column (e.g. `bat_speed` added in 2024), the corresponding core table gets an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the same migration file or a dedicated `*_alter.sql` migration.
 
@@ -237,23 +237,23 @@ This section records significant design decisions and their rationale. New decis
 ---
 
 ### DEC-004 — Core Layer Must Mirror Raw, Fully (2026-05-19)
-**Decision:** `core.pitch` must contain every column present in `raw_statcast.pitch`. No selective promotion of "useful" columns.
+**Decision:** `core.pitches` must contain every column present in `raw_statcast.pitch`. No selective promotion of "useful" columns.
 **Rationale:** The core layer is the single source of truth for analysis. If analysts must join back to raw to get a column, the core layer has failed its purpose.
-**Implementation:** `sql/060_core/004_core_pitch_alter.sql` adds all missing columns.
+**Implementation:** `sql/060_core/002_core_gameplay.sql` defines `core.pitches` with all 74+ columns from raw.
 
 ---
 
 ### DEC-005 — updated_at Requires a Trigger, Not Just a Column (2026-05-19)
 **Decision:** Any table with an `updated_at TIMESTAMPTZ` column must have a `BEFORE UPDATE` trigger attached. The column alone does nothing.
 **Rationale:** Found in both staging and core layers — 8 tables total had `updated_at` columns that were never actually updated.
-**Fixed in:** `sql/050_staging/004_identity_trigger_and_indexes.sql` (staging), `sql/060_core/004_core_pitch_alter.sql` (core).
+**Fixed in:** `sql/050_staging/002_identity_trigger_and_indexes.sql` (staging), `sql/060_core/004_core_pitch_alter.sql` (core).
 
 ---
 
 ### DEC-006 — Unique Partial Indexes on All Five Cross-Source ID Columns (2026-05-19)
 **Decision:** All five cross-source player ID columns must have `CREATE UNIQUE INDEX ... WHERE col IS NOT NULL` on both `stg.player_identity` and `core.player`.
 **Rationale:** Without these, duplicate bridge rows can coexist and lookups by bbref or fangraphs ID perform full sequential scans.
-**Fixed in:** `sql/050_staging/004_identity_trigger_and_indexes.sql`, `sql/060_core/004_core_pitch_alter.sql`.
+**Fixed in:** `sql/050_staging/002_identity_trigger_and_indexes.sql`, `sql/060_core/004_core_pitch_alter.sql`.
 
 ---
 
@@ -330,6 +330,24 @@ All open questions resolved. See Decision Log.
 
 ---
 
+## 8a. Schema Refactor (May 2026)
+
+### Summary
+The core gameplay schema was refactored to decouple plate appearances from pitch telemetry and introduce a canonical game identity bridge. This enables support for both historical (Lahman, Retrosheet) and modern high-fidelity (Statcast) data sources.
+
+### Changes Made
+- **Deleted redundant files:** `003_raw_statcast_migration_v2.sql`, `002_game_bridge.sql`, `004_core_pitch_alter.sql`
+- **Added game identity bridge:** `sql/050_staging/005_game_identity_bridge.sql` maps disparate game IDs (Retrosheet strings, MLB API integers) to canonical UUIDs
+- **Refactored core gameplay:** `sql/060_core/002_core_gameplay.sql` now contains:
+  - `core.games` — canonical game entity with UUID PK
+  - `core.plate_appearances` — decoupled PA event grain
+  - `core.pitches` — granular pitch telemetry (sparse for historical data)
+- **Updated serving views:** `core.v_unified_plate_appearances` includes `has_pitch_telemetry` flag
+- **Fixed UUID consistency:** All foreign keys in ML ops tables updated to UUID type
+- **Verified:** Bootstrap and test suite pass (197/197 tests)
+
+---
+
 ## 9. Outstanding Work Items
 
 Active backlog ordered by dependency. Each item links to its GitHub issue.
@@ -349,19 +367,18 @@ Active backlog ordered by dependency. Each item links to its GitHub issue.
 | # | Task | File | Status | Issue |
 |---|------|------|--------|-------|
 | S-1 | Audit `stg.player_identity` — confirm all 4 cross-source keys | `sql/050_staging/` | 🟡 Needs audit | #13 |
-| S-2 | Identity upsert trigger `trg_statcast_pitch_player_resolve` | `sql/050_staging/004_identity_trigger_and_indexes.sql` | 🔴 Not started | #13 |
-| S-3 | `stg.game_identity` cross-source game ID bridge | `sql/050_staging/` | 🔴 Not started | #14 |
-| S-4 | `stg.v_players_pending_enrichment` enrichment queue view | `sql/050_staging/` | 🔴 Not started | #13 |
+| S-2 | Identity upsert trigger `trg_statcast_pitch_player_resolve` | `sql/050_staging/002_identity_trigger_and_indexes.sql` | ✅ Complete | #13 |
+| S-3 | `stg.v_players_pending_enrichment` enrichment queue view | `sql/050_staging/` | ✅ Complete | #13 |
 
 ### Core Layer (060)
 
 | # | Task | File | Status | Issue |
 |---|------|------|--------|-------|
-| C-1 | Sync `core.pitch` with `raw_statcast.pitch` v2 columns | `sql/060_core/004_core_pitch_alter.sql` | 🔴 Not started | #15 |
+| C-1 | `core.pitches` expanded to 74 columns matching `raw_statcast.pitch` | `sql/060_core/002_core_gameplay.sql` | ✅ Complete | #15 |
 
 ### ML Ops Layer (070)
 
 | # | Task | File | Status | Issue |
 |---|------|------|--------|-------|
-| M-1 | `mv_player_statcast_summary` materialized view | `sql/070_ml_ops/` | 🔴 Not started | #16 |
+| M-1 | `mv_player_statcast_summary` materialized view | `sql/070_ml_ops/` | ✅ Complete | #16 |
 | M-2 | Parquet export CLI `baseball export-features --format parquet` | Python package | 🔴 Not started | #17 |

@@ -84,8 +84,9 @@ jobs:
             done
 
   create-issue-on-demand:
-    name: Create issue on @mlb-bot command
-    runs-on: [self-hosted, homelab, linux]
+    name: Create issue on @mlb-bot mention
+    runs-on: [self-hosted, homelab, Linux]
+    # Trigger when someone comments "@mlb-bot create issue" on a PR
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '@mlb-bot create issue')

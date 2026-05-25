@@ -245,8 +245,8 @@ Lahman is already relational and explicitly documents tables like `People` and `
 
 **Files created:**
 - `sql/050_staging/001_identity_bridge.sql`
-- `sql/050_staging/002_game_bridge.sql`
-- `sql/050_staging/003_source_conformance.sql`
+- `sql/050_staging/005_game_identity_bridge.sql`
+- `sql/050_staging/005_source_conformance.sql`
 - `sql/090_constraints_indexes/005_staging_indexes.sql`
 - `sql/080_functions/005_staging_functions.sql`
 
@@ -260,6 +260,7 @@ Lahman is already relational and explicitly documents tables like `People` and `
 - `stg.game_identity`
 - `stg.game_source_link`
 - `stg.game_identity_candidate`
+- `stg.game_identity_bridge` (canonical game ID mapping)
 - `stg.player_source_conformance`
 - `stg.team_source_conformance`
 - `stg.venue_source_conformance`
@@ -279,6 +280,7 @@ This layer is essential because Lahman includes bridge fields like `retroID` and
 - `sql/060_core/001_core_entities.sql`
 - `sql/060_core/002_core_gameplay.sql`
 - `sql/060_core/003_core_relationships.sql`
+- `sql/060_core/005_serving_views.sql`
 - `sql/090_constraints_indexes/006_core_indexes.sql`
 - `sql/080_functions/006_core_functions.sql`
 
@@ -288,15 +290,18 @@ This layer is essential because Lahman includes bridge fields like `retroID` and
 - `core.player`
 - `core.team`
 - `core.venue`
-- `core.game`
+- `core.games` (canonical game entity with UUID PK)
 - `core.roster_assignment`
-- `core.plate_appearance`
-- `core.pitch`
+- `core.plate_appearances` (decoupled PA event grain)
+- `core.pitches` (granular pitch telemetry)
 - `core.player_team_season`
 - `core.game_official`
 - `core.game_source_map`
 - `core.plate_appearance_source_map`
 - `core.pitch_source_map`
+
+**Important views:**
+- `core.v_unified_plate_appearances` (includes `has_pitch_telemetry` flag)
 
 **Important functions:**
 - `util.core_touch_updated_at()`

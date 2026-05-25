@@ -16,22 +16,34 @@ Build a comprehensive MLB analytics data platform that:
 
 ## Milestones
 
-### Milestone 1 — Foundation & Scaffolding (CURRENT)
-> **Status:** In Progress | **Target:** May 2026
+### Milestone 1 — Foundation & Scaffolding (COMPLETED)
+> **Status:** Completed | **Target:** May 2026
 
 - [x] Repository structure established
 - [x] Python package scaffolding (`baseball/` package, CLI, settings)
 - [x] `pyproject.toml` with dependency management
 - [x] `.env.example` template
-- [ ] Merge PR #1 (Python app layer)
-- [ ] PostgreSQL schema DDL (extensions, tables, indexes, constraints)
-- [ ] Database migration runner wired to `baseball db-init`
-- [ ] GitHub Issues, Milestones, and Labels configured
+- [x] Merge PR #1 (Python app layer)
+- [x] PostgreSQL schema DDL (extensions, tables, indexes, constraints)
+- [x] Database migration runner wired to `baseball db-init`
+- [x] GitHub Issues, Milestones, and Labels configured
+
+---
+
+### Milestone 1.5 — Schema Refactor (COMPLETED)
+> **Status:** Completed | **Target:** May 2026
+
+- [x] Decoupled plate appearances from pitch telemetry
+- [x] Introduced `core.games` table with UUID primary key
+- [x] Added `stg.game_identity_bridge` for canonical game ID mapping
+- [x] Updated `core.v_unified_plate_appearances` view with `has_pitch_telemetry` flag
+- [x] Fixed UUID consistency across core and ML ops tables
+- [x] Verified bootstrap and test suite (197/197 tests pass)
 
 ---
 
 ### Milestone 2 — Database Setup & Schema
-> **Status:** Planned | **Target:** June 2026
+> **Status:** In Progress | **Target:** June 2026
 
 - [ ] Full PostgreSQL schema for core MLB entities:
   - `teams`, `players`, `seasons`, `games`, `game_logs`

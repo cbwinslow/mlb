@@ -35,7 +35,7 @@ defaults:
 jobs:
   should-run:
     name: "Gate: Skip Draft PRs"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
@@ -67,18 +67,54 @@ jobs:
     if: needs.should-run.outputs.run == 'true'
     uses: ./.github/workflows/tests.yml
     secrets: inherit
+    with:
+      python-version: "3.12"
+      coverage-threshold: 80
+
+  build-check:
+    name: "Build Validation"
+    needs: [test]
+    runs-on: [self-hosted, homelab, Linux]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate all Python ASTs
+        run: |
+          python3 <<'PY'
+          import ast, sys, pathlib
+
+          errors = []
+          for f in pathlib.Path('.').rglob('*.py'):
+              if '.git' in str(f):
+                  continue
+              try:
+                  ast.parse(f.read_text())
+              except SyntaxError as e:
+                  errors.append(f'{f}: {e}')
+
+          if errors:
+              print('\n'.join(errors))
+              sys.exit(1)
+
+          print(f'All Python files parse cleanly: {sum(1 for _ in pathlib.Path(".").rglob("*.py"))} files checked')
+          PY
 
   debug:
-    name: "Debug (tmate)"
-    runs-on: [self-hosted, homelab, linux]
-    if: ${{ github.event.inputs.debug == 'true' }}
+    name: "Debug Session (manual)"
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.debug == 'true'
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - name: Checkout
         run: |
           git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
           git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - name: Start tmate debug session
+  ci-summary:
+    name: "CI Summary"
+    if: always()
+    needs: [lint, security-scan, test, build-check]
+    runs-on: [self-hosted, homelab, Linux]
+    steps:
+      - name: Write summary
         run: |
           if ! command -v tmate &>/dev/null; then
             sudo apt-get install -y tmate 2>/dev/null || true

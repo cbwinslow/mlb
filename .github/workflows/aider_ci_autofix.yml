@@ -12,7 +12,7 @@ permissions:
 jobs:
   aider-fix:
     name: Aider auto-fix on CI failure
-    runs-on: [self-hosted, linux, homelab]
+    runs-on: [self-hosted, Linux, homelab]
     if: |
       github.event.workflow_run.conclusion == 'failure' &&
       github.repository_owner == 'cbwinslow'

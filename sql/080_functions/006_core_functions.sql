@@ -83,10 +83,4 @@ BEFORE UPDATE ON core.venue
 FOR EACH ROW
 EXECUTE FUNCTION util.core_touch_updated_at();
 
-DROP TRIGGER IF EXISTS trg_core_game_updated_at ON core.game;
-CREATE TRIGGER trg_core_game_updated_at
-BEFORE UPDATE ON core.game
-FOR EACH ROW
-EXECUTE FUNCTION util.core_touch_updated_at();
-
 COMMIT;

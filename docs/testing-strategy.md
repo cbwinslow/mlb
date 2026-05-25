@@ -191,10 +191,11 @@ This document outlines the comprehensive testing strategy for the MLB analytics 
 - [ ] `core.player` - player entity
 - [ ] `core.team` - team entity
 - [ ] `core.venue` - venue entity
-- [ ] `core.game` - game entity
-- [ ] `core.pitch` - 74+ columns
-- [ ] `core.plate_appearance` - PA structure
+- [ ] `core.games` - canonical game entity with UUID PK
+- [ ] `core.pitches` - 74+ columns, sparse for historical data
+- [ ] `core.plate_appearances` - PA structure with game_id FK
 - [ ] `core.roster_assignment` - roster structure
+- [ ] `core.v_unified_plate_appearances` - serving view with has_pitch_telemetry
 - [ ] Relationships and foreign keys
 
 **Estimated Tests:** 30 tests

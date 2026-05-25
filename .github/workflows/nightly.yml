@@ -39,7 +39,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event.inputs.job == 'all' ||
       github.event.inputs.job == 'db-health'
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     env:
       MLB_DB_DSN: ${{ secrets.MLB_DB_DSN }}
     steps:
@@ -97,7 +97,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event.inputs.job == 'all' ||
       github.event.inputs.job == 'enrichment-dry-run'
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
@@ -129,7 +129,7 @@ jobs:
     name: "Auto-Open Issue on Failure"
     needs: [nightly-tests, db-health, enrichment-dry-run]
     if: failure() && github.event_name == 'schedule'
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     permissions:
       issues: write
     steps:

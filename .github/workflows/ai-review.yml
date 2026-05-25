@@ -25,7 +25,7 @@ permissions:
 jobs:
   openrouter-review:
     name: "Gemini 2.5 Pro Review"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     if: github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4

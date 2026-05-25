@@ -12,7 +12,7 @@ permissions:
 jobs:
   autofix:
     name: Gemini CLI auto-fix on ai-fix label
-    runs-on: [self-hosted, linux, homelab]
+    runs-on: [self-hosted, Linux, homelab]
     if: |
       (contains(github.event.issue.labels.*.name, 'ai-fix') ||
        contains(github.event.issue.labels.*.name, 'auto-review')) &&

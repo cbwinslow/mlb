@@ -34,7 +34,7 @@ jobs:
   release:
     name: "Create GitHub Release"
     needs: pre-release-tests
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
         with:

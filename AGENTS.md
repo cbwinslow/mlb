@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-19
+> Last updated: 2026-05-25 (Schema Refactor cleanup completed)
 
 ---
 
@@ -75,9 +75,10 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | File | Purpose | Status |
 |------|---------|--------|
 | `sql/050_staging/001_identity_bridge.sql` | `stg.player_identity`, `stg.team_identity`, `stg.venue_identity`, `stg.player_identity_candidate` | ✅ Complete |
-| `sql/050_staging/002_game_bridge.sql` | `stg.game_identity`, `stg.game_source_link`, `stg.game_identity_candidate` | ✅ Complete |
-| `sql/050_staging/003_source_conformance.sql` | `stg.player/team/venue_source_conformance` | ✅ Complete |
-| `sql/050_staging/004_identity_trigger_and_indexes.sql` | `updated_at` triggers, missing indexes, auto-resolution trigger, resolution audit log | ✅ Added 2026-05-19 |
+| `sql/050_staging/002_identity_trigger_and_indexes.sql` | `updated_at` triggers, missing indexes, auto-resolution trigger, resolution audit log | ✅ Complete |
+| `sql/050_staging/003_game_identity.sql` | `stg.game_identity` initial table | ✅ Complete |
+| `sql/050_staging/005_game_identity_bridge.sql` | `stg.game_identity` enhancements (canonical game ID mapping, triggers, views) | ✅ Complete |
+| `sql/050_staging/006_source_conformance.sql` | `stg.player/team/venue_source_conformance` | ✅ Complete |
 
 ---
 
@@ -85,11 +86,10 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `sql/060_core/001_core_entities.sql` | `core.player`, `core.team`, `core.venue`, `core.game` | ✅ Complete |
-| `sql/060_core/002_core_gameplay.sql` | `core.roster_assignment`, `core.plate_appearance`, `core.pitch` | ✅ Complete |
+| `sql/060_core/001_core_entities.sql` | `core.player`, `core.team`, `core.venue` | ✅ Complete |
+| `sql/060_core/002_core_gameplay.sql` | `core.games`, `core.plate_appearances`, `core.pitches` (decoupled gameplay tables) | ✅ Complete |
 | `sql/060_core/003_core_relationships.sql` | `core.player_team_season`, `core.game_official`, source map tables | ✅ Complete |
-| `sql/060_core/004_core_pitch_alter.sql` | 74 missing columns added to `core.pitch`; `updated_at` triggers on entity tables; new indexes | ✅ Added 2026-05-19 |
-| `sql/060_core/005_serving_views.sql` | Serving views | ✅ Complete |
+| `sql/060_core/005_serving_views.sql` | Serving views (including `core.v_unified_plate_appearances`) | ✅ Complete |
 
 ---
 
@@ -107,6 +107,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/070_ml_ops/008_api_service_contracts.sql` | API service contract tables | ✅ Complete |
 | `sql/070_ml_ops/009_source_ingestion_specs.sql` | Source ingestion spec tables | ✅ Complete |
 | `sql/070_ml_ops/010_mv_statcast_player_summary.sql` | **Baseball analytics MVs**: `mv_player_statcast_summary`, `mv_pitch_arsenal_by_season`, `mv_game_score_context` | ✅ Added 2026-05-19 |
+| `sql/070_ml_ops/011_mart_views.sql` | Mart views (`mart.v_workspace_model_catalog`) | ✅ Added 2026-05-24 |
 
 ---
 
@@ -122,6 +123,14 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] **Step 7:** `core.pitch` expanded to mirror full `raw_statcast.pitch` (74 columns added); triggers and indexes fixed
 - [x] **Step 8:** `OBJECTIVES.md` written; `AGENTS.md` updated
 - [x] **Step 9:** All 5 open questions resolved as DEC-007–011; `010_mv_statcast_player_summary.sql` added with 3 baseball analytics MVs
+- [x] **Step 10:** Schema refactor completed per refactor-blueprint.md:
+    - Deleted redundant files: `003_raw_statcast_migration_v2.sql`, `002_game_bridge.sql`, `004_core_pitch_alter.sql`
+    - Added game identity bridge: `005_game_identity_bridge.sql`
+    - Refactored core gameplay: `002_core_gameplay.sql` now contains `core.games`, `core.plate_appearances`, `core.pitches`
+    - Updated serving views: `005_serving_views.sql` includes `core.v_unified_plate_appearances`
+    - Updated ML ops: Added `011_mart_views.sql` for `mart.v_workspace_model_catalog`
+    - Fixed foreign key type mismatches in ML ops tables
+    - Verified bootstrap and test suite pass (197/197 tests)
 
 ### Outstanding 🔲
 - [ ] **Next:** Add fully typed stat tables to `raw_fangraphs` and `raw_bref` (DEC-007) — replace JSONB-only payload tables
@@ -129,6 +138,17 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [ ] **Next:** Alembic integration — manual DDL in `sql/` + Alembic version tracking only (DEC-009); see ROADMAP.md Milestone 2
 - [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-011)
 - [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
+
+### Documentation Audit ✅ Completed
+- [x] Updated `AGENTS.md` file maps (removed `002_game_bridge.sql`, `004_core_pitch_alter.sql` references)
+- [x] Updated `ROADMAP.md` with Milestone 1.5 (Schema Refactor)
+- [x] Updated `OBJECTIVES.md` with correct table names (`core.pitches`)
+- [x] Updated `sql/README.md` file tree
+- [x] Updated `docs/project-summary.md` table names
+- [x] Updated `docs/testing-strategy.md` test table names
+- [x] Updated `docs/player_identity_design.md` diagram
+- [x] Updated `docs/github-workflow.md` issue title example
+- [x] Created `docs/audit_checklist.md` with audit verification
 
 ---
 

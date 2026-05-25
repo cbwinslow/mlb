@@ -12,7 +12,10 @@ The current repository is organized around two top-level working directories:
 |------|------|
 | `docs/` | Design and reference documents covering architecture, schema boundaries, security, ingestion, modeling, and operations |
 | `sql/` | SQL implementation for schemas, tables, functions, constraints, indexes, and all other database objects |
+## Schema Refactor (May 2026)
 
+The database schema has been refactored to decouple plate appearances from pitch telemetry and introduce a canonical game identity bridge.
+See `plans/refactor-blueprint.md` for details and the updated DDL in `sql/060_core/002_core_gameplay.sql`.
 ## What the platform supports
 
 - Historical and live baseball data ingestion (Retrosheet, Chadwick, Lahman, MLB StatsAPI, Statcast, FanGraphs, Baseball Reference, ESPN, odds providers)
