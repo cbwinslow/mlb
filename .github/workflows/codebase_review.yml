@@ -30,24 +30,25 @@ jobs:
           python3 <<'EOF'
           import os, subprocess, sys, requests
 
-          key = os.environ.get('OPENROUTER_API_KEY','')
+          key   = os.environ.get('OPENROUTER_API_KEY','')
           focus = os.environ.get('FOCUS','security and data integrity')
           if not key:
-              sys.exit(0)
+              sys.exit(1)
 
-          result = subprocess.run([
-              'git','ls-files','--','*.py','*.sql'],
-              capture_output=True,
-              text=True
+          result = subprocess.run(
+              ['git','ls-files','--','*.py','*.sql'],
+              capture_output=True, text=True
           )
-          files = [f for f in result.stdout.strip().split('\n') if f][:25]
+          files  = [f for f in result.stdout.strip().split('\n') if f][:50]
           chunks = []
           for f in files:
               try:
-                  chunks.append('### ' + f + '\n```\n' + open(f).read()[:1500] + '\n```')
+                  # Read up to 100000 chars per file — no artificial cap
+                  chunks.append('### ' + f + '\n```\n' + open(f).read()[:100000] + '\n```')
               except Exception:
                   pass
-          combined = '\n\n'.join(chunks)[:14000]
+          # Join all chunks — no combined-length cap; let the model handle its context
+          combined = '\n\n'.join(chunks)
 
           prompt = (
               'Full codebase review for mlb PostgreSQL analytics platform. Focus: ' + focus + '\n'
@@ -74,8 +75,8 @@ jobs:
                           'Content-Type': 'application/json',
                           'HTTP-Referer': 'https://github.com/cbwinslow/mlb',
                       },
-                      json={'model': m, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 3000},
-                      timeout=120,
+                      json={'model': m, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 262144},
+                      timeout=600,
                   )
                   d = r.json()
                   if 'choices' in d and d['choices']:
@@ -86,7 +87,8 @@ jobs:
                   print('Failed ' + m + ': ' + str(e))
 
           if not review:
-              sys.exit(0)
+              print('ERROR: all models returned empty — check OPENROUTER_API_KEY and rate limits')
+              sys.exit(1)
           open('/tmp/review.md', 'w').write('## Codebase Review\n\n**Focus:** ' + focus + '\n\n' + review)
           EOF
 
@@ -97,4 +99,4 @@ jobs:
           [ -s /tmp/review.md ] && gh issue create \
             --title "Codebase Review: ${{ github.event.inputs.focus_area }} ($(date +%Y-%m-%d))" \
             --body-file /tmp/review.md \
-            --label "review" 2>/dev/null || true
+            --label "review" 2>/dev/null || echo "WARNING: issue creation failed — review label may not exist yet"

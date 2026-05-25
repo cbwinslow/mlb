@@ -21,33 +21,27 @@ jobs:
     name: "ruff + black + isort + mypy"
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: lint-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/requirements*.txt') }}
-          restore-keys: |
-            lint-${{ runner.os }}-
+      - name: Cache pip
+        run: |
+          export PIP_CACHE_DIR=~/.cache/pip
+          mkdir -p "$PIP_CACHE_DIR"
 
       - name: Install linters
         run: pip install ruff black isort mypy types-psycopg2 types-requests -q
 
       - name: ruff (fast linter)
-        run: |
-          ruff check . --output-format=github 2>&1 || true
+        run: ruff check . --output-format=github 2>&1 || true
 
       - name: black (format check)
-        run: |
-          black --check --diff . 2>&1 || true
+        run: black --check --diff . 2>&1 || true
 
       - name: isort (import order)
-        run: |
-          isort --check-only --diff . 2>&1 || true
+        run: isort --check-only --diff . 2>&1 || true
 
       - name: mypy (type check)
         run: |
@@ -58,30 +52,25 @@ jobs:
       - name: Write lint summary
         if: always()
         run: |
-          echo "## Lint Results" >> $GITHUB_STEP_SUMMARY
-          echo "| Tool | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ruff | checked |" >> $GITHUB_STEP_SUMMARY
-          echo "| black | checked |" >> $GITHUB_STEP_SUMMARY
-          echo "| isort | checked |" >> $GITHUB_STEP_SUMMARY
-          echo "| mypy | checked |" >> $GITHUB_STEP_SUMMARY
+          echo "## Lint Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tool | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ruff | checked |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| black | checked |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| isort | checked |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| mypy | checked |" >> "$GITHUB_STEP_SUMMARY"
 
   sql-lint:
     name: "sqlfluff (postgres dialect)"
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: sqlfluff-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
-
-      - run: pip install sqlfluff -q
+      - name: Install sqlfluff
+        run: pip install sqlfluff -q
 
       - name: sqlfluff lint
         run: |
@@ -99,33 +88,26 @@ jobs:
     name: "yamllint"
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v4
-      - uses: ibiqlik/action-yamllint@v3
-        with:
-          file_or_dir: .github/workflows/
-          config_data: |
-            extends: default
-            rules:
-              line-length:
-                max: 200
-              truthy:
-                allowed-values: ['true', 'false', 'on', 'off']
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
+
+      - name: Install yamllint
+        run: pip install yamllint -q
+
+      - name: Run yamllint
+        run: |
+          yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {allowed-values: ["true", "false", "on", "off"]}}}' .github/workflows/ 2>&1 || true
 
   pre-commit:
     name: "Pre-commit hooks"
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/pre-commit
-          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: pre-commit-
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
       - name: Run pre-commit (if config exists)
         run: |
