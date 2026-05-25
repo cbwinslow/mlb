@@ -11,7 +11,7 @@ permissions:
 jobs:
   openrouter-review:
     name: AI PR review via OpenRouter free tier
-    runs-on: [self-hosted, linux, homelab]
+    runs-on: [self-hosted, Linux, homelab]
     if: github.repository_owner == 'cbwinslow'
     steps:
       - uses: actions/checkout@v4
