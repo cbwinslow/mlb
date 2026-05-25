@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   create-issues-from-review:
-    name: Parse review and create GitHub issues
+    name: Parse and create GitHub issues
     runs-on: [self-hosted, homelab, linux]
     # Only run when a review has comments (changes_requested or comment)
     if: |
@@ -22,185 +22,108 @@ jobs:
        github.event.review.state == 'commented')
     steps:
       - name: Create GitHub issues from review comments
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const reviewBody = context.payload.review.body || '';
-            const reviewer   = context.payload.review.user.login;
-            const prNumber   = context.payload.pull_request.number;
-            const prTitle    = context.payload.pull_request.title;
-            const prUrl      = context.payload.pull_request.html_url;
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          REVIEWER: ${{ github.event.review.user.login }}
+          REVIEW_ID: ${{ github.event.review.id }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+        run: |
+          set -euo pipefail
+          KEYWORDS="bug error issue problem fail incorrect missing security secret credential database_url critical vulnerability injection unsafe broken hardcoded exposed leak"
 
-            // Pull all review comments for this PR review
-            const { data: comments } = await github.rest.pulls.listReviewComments({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              pull_number: prNumber,
-            });
+          contains_keyword() {
+            local text=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+            for kw in $KEYWORDS; do
+              echo "$text" | grep -q "$kw" && return 0
+            done
+            return 1
+          }
 
-            // Filter to comments from this specific review
-            const reviewId = context.payload.review.id;
-            const reviewComments = comments.filter(c => c.pull_request_review_id === reviewId);
+          create_issue_and_comment() {
+            local title="$1"
+            local body="$2"
+            local issue_url
+            issue_url=$(echo "$body" | gh api repos/${REPO}/issues \
+              --method POST \
+              --field title="$title" \
+              --field body=@- \
+              --field labels[]="bug" \
+              --field labels[]="auto-review" \
+              --jq '.html_url')
+            echo "Created issue: $issue_url"
+            gh api repos/${REPO}/issues/${PR_NUMBER}/comments \
+              --method POST \
+              --field body="Bug Auto-issue created: ${issue_url}" > /dev/null
+          }
 
-            const bugs      = [];
-            const KEYWORDS  = [
-              'bug', 'error', 'issue', 'problem', 'fail', 'incorrect',
-              'missing', 'security', 'secret', 'credential', 'database_url',
-              'critical', 'vulnerability', 'injection', 'unsafe', 'broken',
-              'hardcoded', 'exposed', 'leak'
-            ];
+          # Check top-level review body
+          if [ -n "${REVIEW_BODY:-}" ] && contains_keyword "$REVIEW_BODY"; then
+            SHORT=$(echo "$REVIEW_BODY" | head -c 72 | tr '\n' ' ')
+            ISSUE_BODY=$(printf '## Source\n\nAuto-created from PR #%s: [%s](%s)\nReview by @%s\n\n---\n\n## Review Comment\n\n%s\n\n---\n\n## AI-Agent Fix Prompt\n\n```\nFix the following issue found during code review:\n\n%s\n```' \
+              "$PR_NUMBER" "$PR_TITLE" "$PR_URL" "$REVIEWER" "$REVIEW_BODY" "$REVIEW_BODY")
+            create_issue_and_comment "[auto] ${SHORT}" "$ISSUE_BODY"
+          fi
 
-            // Check top-level review body
-            if (reviewBody) {
-              const lower = reviewBody.toLowerCase();
-              if (KEYWORDS.some(k => lower.includes(k))) {
-                bugs.push({
-                  body: reviewBody,
-                  path: null,
-                  line: null
-                });
-              }
-            }
-
-            // Check each inline review comment
-            for (const c of reviewComments) {
-              const lower = c.body.toLowerCase();
-              if (KEYWORDS.some(k => lower.includes(k))) {
-                bugs.push({
-                  body: c.body,
-                  path: c.path,
-                  line: c.original_line || c.line
-                });
-              }
-            }
-
-            if (bugs.length === 0) {
-              console.log('No actionable review comments found.');
-              return;
-            }
-
-            for (const bug of bugs) {
-              const location = bug.path
-                ? `**File:** \`${bug.path}\`${bug.line ? ` (line ${bug.line})` : ''}`
-                : '_Top-level review comment_';
-
-              const issueBody = [
-                `## Source`,
-                ``,
-                `Automatically created from PR #${prNumber}: [${prTitle}](${prUrl})`,
-                `Review by @${reviewer}`,
-                ``,
-                `---`,
-                ``,
-                `## Location`,
-                ``,
-                location,
-                ``,
-                `## Review Comment`,
-                ``,
-                bug.body,
-                ``,
-                `---`,
-                ``,
-                `## Suggested Fix`,
-                ``,
-                `> _Paste suggested fix or ask an AI agent (Cursor, Kilo, Claude Code) to implement the fix using this issue as context._`,
-                ``,
-                `**Prompt for AI agent:**`,
-                `\`\`\``,
-                `Fix the following issue found during code review of ${bug.path || 'the codebase'}:`,
-                ``,
-                bug.body,
-                `\`\`\``,
-              ].join('\n');
-
-              const { data: issue } = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                title: `[auto] ${bug.path ? bug.path + ': ' : ''}${bug.body.slice(0, 72).replace(/\n/g, ' ')}${bug.body.length > 72 ? '…' : ''}`,
-                body:  issueBody,
-                labels: ['bug', 'auto-review'],
-              });
-
-              console.log(`Created issue #${issue.number}: ${issue.html_url}`);
-
-              // Comment back on the PR linking to the issue
-              await github.rest.issues.createComment({
-                owner:        context.repo.owner,
-                repo:         context.repo.repo,
-                issue_number: prNumber,
-                body: `🐛 **Auto-issue created:** [#${issue.number} — ${issue.title}](${issue.html_url})\n\nThis issue was automatically generated from a review comment and includes an AI-agent-ready prompt for fixing it.`,
-              });
-            }
+          # Check inline review comments via API
+          gh api repos/${REPO}/pulls/${PR_NUMBER}/comments --paginate \
+            | jq -r --arg rid "$REVIEW_ID" \
+              '.[] | select(.pull_request_review_id == ($rid | tonumber)) | [.body, .path, (.original_line // .line // 0 | tostring)] | @tsv' \
+          | while IFS=$'\t' read -r body path line; do
+              if contains_keyword "$body"; then
+                SHORT=$(echo "$body" | head -c 72 | tr '\n' ' ')
+                LOCATION="File: \`${path}\`${line:+" (line $line)"}"
+                ISSUE_BODY=$(printf '## Source\n\nAuto-created from PR #%s: [%s](%s)\nReview by @%s\n\n---\n\n## Location\n\n%s\n\n## Review Comment\n\n%s\n\n---\n\n## AI-Agent Fix Prompt\n\n```\nFix the following issue in %s:\n\n%s\n```' \
+                  "$PR_NUMBER" "$PR_TITLE" "$PR_URL" "$REVIEWER" \
+                  "$LOCATION" "$body" "$path" "$body")
+                create_issue_and_comment "[auto] ${path}: ${SHORT}" "$ISSUE_BODY"
+              fi
+            done
 
   create-issue-on-demand:
-    name: Create issue on @mlb-bot mention
+    name: Create issue on @mlb-bot command
     runs-on: [self-hosted, homelab, linux]
-    # Trigger when someone comments "@mlb-bot create issue" on a PR
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '@mlb-bot create issue')
     steps:
-      - name: Create issue from comment body
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const comment  = context.payload.comment.body;
-            const author   = context.payload.comment.user.login;
-            const issueNum = context.payload.issue.number;
-            const issueTitle = context.payload.issue.title;
-            const issueUrl   = context.payload.issue.html_url;
+      - name: Parse comment and create issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
 
-            // Strip the trigger phrase and use the rest as the description
-            const description = comment
-              .replace(/@mlb-bot create issue/i, '')
-              .trim();
+          DESCRIPTION=$(echo "$COMMENT_BODY" | sed 's/@mlb-bot create issue//i' | xargs)
 
-            if (!description) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                issue_number: issueNum,
-                body: '⚠️ @mlb-bot needs a description after `create issue`. Example:\n```\n@mlb-bot create issue The ingestion worker crashes when source file is missing\n```',
-              });
-              return;
-            }
+          if [ -z "$DESCRIPTION" ]; then
+            gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments \
+              --method POST \
+              --field body='Warning @mlb-bot needs a description after `create issue`. Example: `@mlb-bot create issue The ingestion worker crashes when source file is missing`'
+            exit 0
+          fi
 
-            const body = [
-              `## Source`,
-              ``,
-              `Created on-demand from comment by @${author} on #${issueNum}: [${issueTitle}](${issueUrl})`,
-              ``,
-              `## Description`,
-              ``,
-              description,
-              ``,
-              `## AI-Agent Fix Prompt`,
-              ``,
-              `\`\`\``,
-              `Fix the following issue in the mlb repo:`,
-              ``,
-              description,
-              ``,
-              `Consult the codebase context and the postgres MCP tool for schema details.`,
-              `\`\`\``,
-            ].join('\n');
+          SHORT=$(echo "$DESCRIPTION" | head -c 80 | tr '\n' ' ')
+          ISSUE_BODY=$(printf '## Source\n\nCreated on-demand by @%s on #%s: [%s](%s)\n\n## Description\n\n%s\n\n## AI-Agent Fix Prompt\n\n```\nFix the following issue in the mlb repo:\n\n%s\n\nConsult the codebase context and the postgres MCP tool for schema details.\n```' \
+            "$AUTHOR" "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_URL" \
+            "$DESCRIPTION" "$DESCRIPTION")
 
-            const shortTitle = description.slice(0, 80).replace(/\n/g, ' ') + (description.length > 80 ? '…' : '');
+          NEW_ISSUE_URL=$(echo "$ISSUE_BODY" | gh api repos/${REPO}/issues \
+            --method POST \
+            --field title="[auto] ${SHORT}" \
+            --field body=@- \
+            --field labels[]="bug" \
+            --field labels[]="auto-review" \
+            --jq '.html_url')
 
-            const { data: newIssue } = await github.rest.issues.create({
-              owner:  context.repo.owner,
-              repo:   context.repo.repo,
-              title:  `[auto] ${shortTitle}`,
-              body:   body,
-              labels: ['bug', 'auto-review'],
-            });
-
-            await github.rest.issues.createComment({
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
-              issue_number: issueNum,
-              body: `✅ Issue created: [#${newIssue.number}](${newIssue.html_url})`,
-            });
+          gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments \
+            --method POST \
+            --field body="Issue created: ${NEW_ISSUE_URL}"
