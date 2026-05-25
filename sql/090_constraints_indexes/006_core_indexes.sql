@@ -54,8 +54,7 @@ CREATE INDEX IF NOT EXISTS core_plate_appearances_game_batter_pitcher_idx
 CREATE INDEX IF NOT EXISTS core_plate_appearances_result_group_idx
     ON core.plate_appearances (event_result_code);
 
-CREATE INDEX IF NOT EXISTS core_pitches_plate_appearance_idx
-    ON core.pitches (plate_appearance_id);
+-- core_pitches_plate_appearance_idx removed: covered by core_pitches_sequence_idx (plate_appearance_id, pitch_sequence_num)
 
 CREATE INDEX IF NOT EXISTS core_pitches_sequence_idx
     ON core.pitches (plate_appearance_id, pitch_sequence_num);

@@ -246,14 +246,14 @@ This section records significant design decisions and their rationale. New decis
 ### DEC-005 — updated_at Requires a Trigger, Not Just a Column (2026-05-19)
 **Decision:** Any table with an `updated_at TIMESTAMPTZ` column must have a `BEFORE UPDATE` trigger attached. The column alone does nothing.
 **Rationale:** Found in both staging and core layers — 8 tables total had `updated_at` columns that were never actually updated.
-**Fixed in:** `sql/050_staging/004_identity_trigger_and_indexes.sql` (staging), `sql/060_core/004_core_pitch_alter.sql` (core).
+**Fixed in:** `sql/050_staging/002_identity_trigger_and_indexes.sql` (staging), `sql/060_core/004_core_pitch_alter.sql` (core).
 
 ---
 
 ### DEC-006 — Unique Partial Indexes on All Five Cross-Source ID Columns (2026-05-19)
 **Decision:** All five cross-source player ID columns must have `CREATE UNIQUE INDEX ... WHERE col IS NOT NULL` on both `stg.player_identity` and `core.player`.
 **Rationale:** Without these, duplicate bridge rows can coexist and lookups by bbref or fangraphs ID perform full sequential scans.
-**Fixed in:** `sql/050_staging/004_identity_trigger_and_indexes.sql`, `sql/060_core/004_core_pitch_alter.sql`.
+**Fixed in:** `sql/050_staging/002_identity_trigger_and_indexes.sql`, `sql/060_core/004_core_pitch_alter.sql`.
 
 ---
 
@@ -367,7 +367,7 @@ Active backlog ordered by dependency. Each item links to its GitHub issue.
 | # | Task | File | Status | Issue |
 |---|------|------|--------|-------|
 | S-1 | Audit `stg.player_identity` — confirm all 4 cross-source keys | `sql/050_staging/` | 🟡 Needs audit | #13 |
-| S-2 | Identity upsert trigger `trg_statcast_pitch_player_resolve` | `sql/050_staging/004_identity_trigger_and_indexes.sql` | ✅ Complete | #13 |
+| S-2 | Identity upsert trigger `trg_statcast_pitch_player_resolve` | `sql/050_staging/002_identity_trigger_and_indexes.sql` | ✅ Complete | #13 |
 | S-3 | `stg.v_players_pending_enrichment` enrichment queue view | `sql/050_staging/` | ✅ Complete | #13 |
 
 ### Core Layer (060)

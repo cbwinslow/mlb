@@ -233,4 +233,105 @@ BEFORE UPDATE ON stg.game_identity
 FOR EACH ROW
 EXECUTE FUNCTION util.stg_touch_updated_at();
 
+-- Unified ingestion entry point (delegates to source-specific logic)
+-- This single function reduces duplication between ingest_statcast_play and ingest_chadwick_play.
+CREATE OR REPLACE FUNCTION util.ingest_play_event(
+    p_source_system       VARCHAR(30),  -- 'statcast', 'retrosheet', 'chadwick', 'mlb_api'
+    p_source_game_key     VARCHAR(50),  -- game_pk (statcast) or retrosheet game ID
+    p_at_bat_number       INT,
+    p_pitch_number        INT,
+    p_batter_id           BIGINT,
+    p_pitcher_id          BIGINT,
+    p_inning              SMALLINT,
+    p_half_inning         CHAR(1),
+    p_outs_before         SMALLINT,
+    p_pa_sequence_order   SMALLINT,
+    p_event_result_code   VARCHAR(30),
+    p_data_source_lineage VARCHAR(30),
+    p_workspace_id        UUID,
+    p_balls_before        SMALLINT,
+    p_strikes_before      SMALLINT,
+    p_pitch_type          CHAR(2),
+    p_pitch_call          CHAR(1),
+    p_release_velocity    NUMERIC(4,1),
+    p_spin_rate           SMALLINT,
+    p_induced_vertical_break NUMERIC(4,2),
+    p_horizontal_break    NUMERIC(4,2),
+    p_plate_x             NUMERIC(4,2),
+    p_plate_z             NUMERIC(4,2),
+    p_game_date           DATE,
+    p_home_team_code      CHAR(3),
+    p_away_team_code      CHAR(3)
+)
+RETURNS UUID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_plate_appearance_id UUID;
+    v_canonical_game_id   UUID;
+    v_pitch_id            UUID;
+BEGIN
+    -- Resolve or create canonical game identity
+    WITH game_bridge AS (
+        INSERT INTO stg.game_identity_bridge (
+            source_system, source_game_key, season,
+            game_date, home_team_code, away_team_code
+        )
+        VALUES (
+            p_source_system,
+            p_source_game_key,
+            EXTRACT(YEAR FROM p_game_date)::INT,
+            p_game_date,
+            p_home_team_code,
+            p_away_team_code
+        )
+        ON CONFLICT (source_system, source_game_key)
+        DO UPDATE SET
+            -- Never overwrite canonical_game_id; only refresh metadata if changed
+            season         = EXCLUDED.season,
+            game_date      = EXCLUDED.game_date,
+            home_team_code = EXCLUDED.home_team_code,
+            away_team_code = EXCLUDED.away_team_code
+        RETURNING canonical_game_id
+    )
+    SELECT canonical_game_id INTO v_canonical_game_id FROM game_bridge;
+
+    -- Insert plate appearance
+    INSERT INTO core.plate_appearances (
+        game_id, batter_id, pitcher_id, inning, half_inning,
+        outs_before, pa_sequence_order, event_result_code,
+        data_source_lineage, workspace_id, created_at
+    )
+    VALUES (
+        v_canonical_game_id, p_batter_id, p_pitcher_id,
+        p_inning, p_half_inning, p_outs_before, p_pa_sequence_order,
+        p_event_result_code, p_data_source_lineage, p_workspace_id, NOW()
+    )
+    RETURNING plate_appearance_id INTO v_plate_appearance_id;
+
+    -- Insert pitch telemetry
+    INSERT INTO core.pitches (
+        plate_appearance_id, pitch_sequence_num, balls_before, strikes_before,
+        pitch_type, pitch_call, release_velocity, spin_rate,
+        induced_vertical_break, horizontal_break, plate_x, plate_z, created_at
+    )
+    VALUES (
+        v_plate_appearance_id, p_pitch_number, p_balls_before, p_strikes_before,
+        p_pitch_type, p_pitch_call, p_release_velocity, p_spin_rate,
+        p_induced_vertical_break, p_horizontal_break, p_plate_x, p_plate_z, NOW()
+    )
+    RETURNING pitch_id INTO v_pitch_id;
+
+    RETURN v_pitch_id;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE;
+END;
+$$;
+
+COMMENT ON FUNCTION util.ingest_play_event IS
+    'Unified play-event ingestion entry point for all source systems. '
+    'Source-specific functions (ingest_statcast_play, ingest_chadwick_play) now delegate here.';
+
 COMMIT;
