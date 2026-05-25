@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS core.plate_appearances (
     created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Unique constraint enabling ON CONFLICT upsert in ingestion functions
+-- (game_id, pa_sequence_order) is the natural business key for a plate appearance
+ALTER TABLE core.plate_appearances
+    ADD CONSTRAINT uniq_pa_per_game UNIQUE (game_id, pa_sequence_order);
+
 COMMENT ON TABLE core.plate_appearances IS 'Plate appearance facts, one row per PA, decoupled from pitch telemetry.';
 
 -- 3. Pitch Level/Telemetry Array (Granular Physical Sub-Layer)
