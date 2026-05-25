@@ -34,14 +34,13 @@ Architecture notes:
 from __future__ import annotations
 
 import csv
-import io
 import logging
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console

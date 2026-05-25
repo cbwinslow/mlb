@@ -4,11 +4,9 @@ Covers _mask_db_url(), the db-init command, and the db-smoke command.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from baseball.cli import SQL_ROOT, TEST_SQL_ROOT, _mask_db_url, app
