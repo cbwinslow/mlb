@@ -21,7 +21,7 @@ permissions:
 jobs:
   bandit:
     name: "Bandit — Python SAST"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +50,7 @@ jobs:
 
   safety:
     name: "Safety — CVE Check"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +70,7 @@ jobs:
 
   pip-audit:
     name: "pip-audit — Dependency Audit"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +90,7 @@ jobs:
 
   trufflehog:
     name: "TruffleHog — Secret Scan"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,7 +108,7 @@ jobs:
     name: "Security Summary"
     if: always()
     needs: [bandit, safety, pip-audit, trufflehog]
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - name: Write summary
         run: |
