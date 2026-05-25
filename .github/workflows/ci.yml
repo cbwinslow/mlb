@@ -35,7 +35,7 @@ defaults:
 jobs:
   should-run:
     name: "Gate: Skip Draft PRs"
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
@@ -73,7 +73,7 @@ jobs:
   build-check:
     name: "Build Validation"
     needs: [test]
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
       - name: Validate all Python ASTs
@@ -100,7 +100,7 @@ jobs:
   debug:
     name: "Debug Session (manual)"
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.debug == 'true'
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - uses: actions/checkout@v4
       - uses: mxschmitt/action-tmate@v3
@@ -112,7 +112,7 @@ jobs:
     name: "CI Summary"
     if: always()
     needs: [lint, security-scan, test, build-check]
-    runs-on: [self-hosted, homelab, linux]
+    runs-on: [self-hosted, homelab, Linux]
     steps:
       - name: Write summary
         run: |
