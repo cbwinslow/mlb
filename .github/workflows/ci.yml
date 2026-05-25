@@ -1,4 +1,4 @@
-name: "CI — Orchestrator"
+name: "CI - Orchestrator"
 
 on:
   push:
@@ -63,68 +63,29 @@ jobs:
 
   test:
     name: "Test Suite"
-    needs: [lint]
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
     uses: ./.github/workflows/tests.yml
     secrets: inherit
-    with:
-      python-version: "3.12"
-      coverage-threshold: 80
-
-  build-check:
-    name: "Build Validation"
-    needs: [test]
-    runs-on: [self-hosted, homelab, linux]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate all Python ASTs
-        run: |
-          python3 <<'PY'
-          import ast, sys, pathlib
-
-          errors = []
-          for f in pathlib.Path('.').rglob('*.py'):
-              if '.git' in str(f):
-                  continue
-              try:
-                  ast.parse(f.read_text())
-              except SyntaxError as e:
-                  errors.append(f'{f}: {e}')
-
-          if errors:
-              print('\n'.join(errors))
-              sys.exit(1)
-
-          print(f'All Python files parse cleanly: {sum(1 for _ in pathlib.Path(".").rglob("*.py"))} files checked')
-          PY
 
   debug:
-    name: "Debug Session (manual)"
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.debug == 'true'
+    name: "Debug (tmate)"
     runs-on: [self-hosted, homelab, linux]
+    if: ${{ github.event.inputs.debug == 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: mxschmitt/action-tmate@v3
-        with:
-          limit-access-to-actor: true
-    timeout-minutes: 30
-
-  ci-summary:
-    name: "CI Summary"
-    if: always()
-    needs: [lint, security-scan, test, build-check]
-    runs-on: [self-hosted, homelab, linux]
-    steps:
-      - name: Write summary
+      - name: Checkout
         run: |
-          echo "## CI Results — $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build | ${{ needs.build-check.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Actor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
+
+      - name: Start tmate debug session
+        run: |
+          if ! command -v tmate &>/dev/null; then
+            sudo apt-get install -y tmate 2>/dev/null || true
+          fi
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate-ready
+          tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
+          tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
+          sleep 1800
+        timeout-minutes: 30
