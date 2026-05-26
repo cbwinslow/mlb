@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-25 (configuration fixes complete, pyproject.toml, .gitignore, Python linting, .env injection fix)
+> Last updated: 2026-05-26 (player identity resolution, Issue #36 completed)
 
 ---
 
@@ -81,6 +81,28 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/050_staging/005_game_identity_bridge.sql` | `stg.game_identity` enhancements (canonical game ID mapping, triggers, views) | ✅ Complete |
 | `sql/050_staging/006_source_conformance.sql` | `stg.player/team/venue_source_conformance` | ✅ Complete |
 | `sql/050_staging/007_mlbapi_extraction.sql` | `stg.mlbapi_game`, `stg.mlbapi_person`, `stg.mlbapi_team` (typed extraction from JSONB) | ✅ Complete |
+
+---
+
+## Functions Layer File Map
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `sql/080_functions/001_meta_functions.sql` | Metadata utility functions | ✅ Complete |
+| `sql/080_functions/002_retrosheet_chadwick_functions.sql` | Retrosheet/Chadwick ingestion functions | ✅ Complete |
+| `sql/080_functions/003a_ingestion_identity_resolution.sql` | `util.resolve_player_id()`, `util.resolve_team_id()` for MLBAM ID bridge | ✅ Added 2026-05-26 |
+| `sql/080_functions/003_statcast_mlbapi_functions.sql` | Statcast/MLB API ingestion functions | ✅ Complete |
+| `sql/080_functions/004_lahman_web_functions.sql` | Lahman web ingestion functions | ✅ Complete |
+| `sql/080_functions/005_staging_functions.sql` | `ingest_chadwick_play()`, `ingest_play_event()` with identity resolution | ✅ Updated 2026-05-26 |
+| `sql/080_functions/006_core_functions.sql` | Core entity utility functions | ✅ Complete |
+| `sql/080_functions/007_ml_ops_functions.sql` | ML operations functions | ✅ Complete |
+| `sql/080_functions/008_auth_security_functions.sql` | Authentication and security functions | ✅ Complete |
+| `sql/080_functions/009_mart_refresh_functions.sql` | Materialized view refresh functions | ✅ Complete |
+| `sql/080_functions/010_ingestion_ops_functions.sql` | Ingestion orchestration functions | ✅ Complete |
+| `sql/080_functions/011_api_service_functions.sql` | API service contract functions | ✅ Complete |
+| `sql/080_functions/012_source_ingestion_functions.sql` | Source-specific ingestion functions | ✅ Complete |
+| `sql/080_functions/013_identity_validation_functions.sql` | Identity validation functions | ✅ Complete |
+| `sql/080_functions/014_identity_reconciliation_functions.sql` | Identity reconciliation functions | ✅ Complete |
 
 ---
 
@@ -177,6 +199,11 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [ ] **Next:** Create Alembic migrations for sql/010-090 directories (DEC-009); see ROADMAP.md Milestone 2
 - [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
 - [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
+- [x] **Issue #36:** Fix type mismatches in ingestion functions (INTEGER vs UUID)
+    - Added `util.resolve_player_id()` and `util.resolve_team_id()` functions
+    - Updated `util.ingest_chadwick_play()` and `util.ingest_play_event()` to resolve MLBAM IDs
+    - Fixed async/await patterns in orchestrator.py
+    - All 197 tests pass
 
 ### Documentation Audit ✅ Completed
 - [x] Updated `AGENTS.md` file maps (removed `002_game_bridge.sql`, `004_core_pitch_alter.sql` references)
