@@ -172,25 +172,25 @@ class TestDbInitCommand:
     def test_exit_code_zero(self):
         mock_settings = _make_mock_settings()
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert result.exit_code == 0
 
     def test_output_contains_db_init_plan(self):
         mock_settings = _make_mock_settings()
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "DB Init Plan" in result.output
 
     def test_output_contains_environment(self):
         mock_settings = _make_mock_settings(env=AppEnv.TEST)
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "test" in result.output
 
     def test_output_contains_sql_root(self):
         mock_settings = _make_mock_settings()
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "sql" in result.output
 
     def test_password_not_exposed_in_output(self):
@@ -198,7 +198,7 @@ class TestDbInitCommand:
             db_url="postgresql+asyncpg://mlb:supersecret@localhost:5432/mlb"
         )
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "supersecret" not in result.output
 
     def test_password_masked_as_stars(self):
@@ -206,26 +206,26 @@ class TestDbInitCommand:
             db_url="postgresql+asyncpg://mlb:topsecret@localhost:5432/mlb"
         )
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "***" in result.output
 
     def test_output_contains_dry_run_note(self):
         mock_settings = _make_mock_settings()
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
-        assert "dry run" in result.output.lower() or "stub" in result.output.lower()
+            result = runner.invoke(app, ["db-init", "--dry-run"])
+        assert "dry run" in result.output.lower()
 
     def test_production_env_shown_in_output(self):
         mock_settings = _make_mock_settings(env=AppEnv.PRODUCTION)
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "production" in result.output
 
     def test_url_without_password_printed_as_is(self):
         url_no_pass = "postgresql+asyncpg://mlb@localhost:5432/mlb"
         mock_settings = _make_mock_settings(db_url=url_no_pass)
         with patch("baseball.cli.get_settings", return_value=mock_settings):
-            result = runner.invoke(app, ["db-init"])
+            result = runner.invoke(app, ["db-init", "--dry-run"])
         assert "mlb@localhost" in result.output
 
 
@@ -279,7 +279,7 @@ class TestDbSmokeCommand:
         mock_settings = _make_mock_settings()
         with patch("baseball.cli.get_settings", return_value=mock_settings):
             result = runner.invoke(app, ["db-smoke"])
-        assert "dry run" in result.output.lower() or "stub" in result.output.lower()
+        assert "dry run" in result.output.lower()
 
     def test_test_env_shown_in_output(self):
         mock_settings = _make_mock_settings(env=AppEnv.TEST)

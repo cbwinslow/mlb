@@ -1,0 +1,84 @@
+"""Database bootstrap and administration commands."""
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+console = Console()
+
+SQL_ROOT = Path(__file__).resolve().parent.parent / "sql"
+
+
+def run_bootstrap(
+    database_url: str,
+    recreate: bool = False,
+) -> None:
+    """Run SQL bootstrap files against the target database.
+
+    Args:
+        database_url: PostgreSQL connection string.
+        recreate: Drop and recreate the database first.
+    """
+    if recreate:
+        console.print("[yellow]Recreating database...[/yellow]")
+        _drop_database(database_url)
+        _create_database(database_url)
+
+    # Get all SQL files in sorted order (010 through 090)
+    sql_files = sorted(SQL_ROOT.rglob("*.sql"))
+    console.print(f"[blue]Found {len(sql_files)} SQL files to apply[/blue]")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Applying SQL files...", total=len(sql_files))
+
+        for sql_file in sql_files:
+            progress.console.print(f"  [cyan]Applying[/cyan] {sql_file.relative_to(SQL_ROOT)}")
+            _run_sql_file(database_url, sql_file)
+            progress.advance(task)
+
+    console.print("[green]✓[/green] Bootstrap complete")
+
+
+def _run_sql_file(database_url: str, sql_file: Path) -> None:
+    """Run a single SQL file using psql."""
+    subprocess.run(
+        ["psql", database_url, "-v", "ON_ERROR_STOP=1", "-f", str(sql_file)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _drop_database(database_url: str) -> None:
+    """Drop the target database."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(database_url)
+    db_name = parsed.path.lstrip("/")
+
+    subprocess.run(
+        ["dropdb", "--if-exists", db_name],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _create_database(database_url: str) -> None:
+    """Create the target database."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(database_url)
+    db_name = parsed.path.lstrip("/")
+
+    subprocess.run(
+        ["createdb", db_name],
+        check=True,
+        capture_output=True,
+    )

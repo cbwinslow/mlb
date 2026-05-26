@@ -30,25 +30,33 @@ def _mask_db_url(url: str) -> str:
 
 
 @app.command("db-init")
-def db_init() -> None:
+def db_init(
+    recreate: bool = False,
+    dry_run: bool = False,
+) -> None:
     """Apply SQL bootstrap files to the configured DATABASE_URL.
 
-    This is a placeholder for the real implementation which will orchestrate
-    psql or a migration runner against the sql/ directory using the documented
-    folder order (010_extensions through 090_constraints_indexes).
+    Applies SQL files in order from sql/010_extensions through
+    sql/090_constraints_indexes.
     """
+    from baseball.db import run_bootstrap
+
     settings = get_settings()
 
-    table = Table(title="DB Init Plan")
-    table.add_column("Step")
-    table.add_column("Value")
-    table.add_row("Environment", settings.env.value)
-    table.add_row("Database URL", _mask_db_url(str(settings.database.url)))
-    table.add_row("SQL root", str(SQL_ROOT))
+    if dry_run:
+        table = Table(title="DB Init Plan (dry run)")
+        table.add_column("Step")
+        table.add_column("Value")
+        table.add_row("Environment", settings.env.value)
+        table.add_row("Database URL", _mask_db_url(str(settings.database.url)))
+        table.add_row("SQL root", str(SQL_ROOT))
+        console.print(table)
+        console.print("[yellow]Dry run - no changes made[/yellow]")
+        return
 
-    console.print(table)
-    console.print(
-        "[yellow]NOTE:[/] db-init is a dry run stub. Implementation pending."
+    run_bootstrap(
+        database_url=str(settings.database.url),
+        recreate=recreate,
     )
 
 
