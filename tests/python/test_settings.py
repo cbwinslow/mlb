@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 from baseball.settings import (
     AppEnv,
@@ -122,12 +123,24 @@ class TestDatabaseSettings:
         assert db.url is not None
 
     def test_url_is_required(self):
-        with pytest.raises(ValidationError):
-            DatabaseSettings.model_validate({})
+        """URL is required when .env is not available."""
+        with patch.object(
+            DatabaseSettings,
+            "model_config",
+            SettingsConfigDict(env_prefix="", env_file=None, extra="ignore"),
+        ):
+            with pytest.raises(ValidationError):
+                DatabaseSettings.model_validate({})
 
     def test_schema_search_path_defaults_to_none(self):
-        db = _db()
-        assert db.schema_search_path is None
+        """Schema search path defaults to None when .env is not available."""
+        with patch.object(
+            DatabaseSettings,
+            "model_config",
+            SettingsConfigDict(env_prefix="", env_file=None, extra="ignore"),
+        ):
+            db = DatabaseSettings.model_validate({"DATABASE_URL": _VALID_DB_URL})
+            assert db.schema_search_path is None
 
     def test_schema_search_path_can_be_set(self):
         db = _db(search_path="meta,ref,raw_retrosheet,stg,core")
@@ -349,9 +362,19 @@ class TestGetSettings:
         assert call_count == 1
 
     def test_without_database_raises_validation_error(self):
-        """Calling AppSettings() without DATABASE_URL should raise ValidationError."""
+        """Calling AppSettings() without DATABASE_URL should raise ValidationError.
+
+        Note: This test patches the model_config env_file to None so that the nested
+        DatabaseSettings() cannot load from .env, forcing validation to fail.
+        """
         get_settings.cache_clear()
         clean_env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
         with patch.dict(os.environ, clean_env, clear=True):
-            with pytest.raises((ValidationError, Exception)):
-                AppSettings()
+            # Patch the model_config env_file to prevent loading from .env
+            with patch.object(
+                DatabaseSettings,
+                "model_config",
+                SettingsConfigDict(env_prefix="", env_file=None, extra="ignore"),
+            ):
+                with pytest.raises(ValidationError):
+                    AppSettings()

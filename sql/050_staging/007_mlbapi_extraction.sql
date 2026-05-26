@@ -120,25 +120,4 @@ CREATE INDEX IF NOT EXISTS stg_mlbapi_person_id_idx
 CREATE INDEX IF NOT EXISTS stg_mlbapi_team_id_idx
     ON stg.mlbapi_team (team_id);
 
--- ---------------------------------------------------------------------------
--- Trigger for updated_at maintenance
--- ---------------------------------------------------------------------------
-DROP TRIGGER IF EXISTS trg_stg_mlbapi_game_updated_at ON stg.mlbapi_game;
-CREATE TRIGGER trg_stg_mlbapi_game_updated_at
-    BEFORE UPDATE ON stg.mlbapi_game
-    FOR EACH ROW
-    EXECUTE FUNCTION util.stg_touch_updated_at();
-
-DROP TRIGGER IF EXISTS trg_stg_mlbapi_person_updated_at ON stg.mlbapi_person;
-CREATE TRIGGER trg_stg_mlbapi_person_updated_at
-    BEFORE UPDATE ON stg.mlbapi_person
-    FOR EACH ROW
-    EXECUTE FUNCTION util.stg_touch_updated_at();
-
-DROP TRIGGER IF EXISTS trg_stg_mlbapi_team_updated_at ON stg.mlbapi_team;
-CREATE TRIGGER trg_stg_mlbapi_team_updated_at
-    BEFORE UPDATE ON stg.mlbapi_team
-    FOR EACH ROW
-    EXECUTE FUNCTION util.stg_touch_updated_at();
-
 COMMIT;

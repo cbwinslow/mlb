@@ -68,6 +68,7 @@ $$;
 
 -- Chadwick/Retrosheet ingestion function to insert into core.plate_appearances and core.pitches
 -- Following blueprint section 5.1: write to core.plate_appearances, capture UUID, use for core.pitches
+-- Issue #36 fix: resolves MLBAM IDs through stg.player_identity -> core.player bridge
 CREATE OR REPLACE FUNCTION util.ingest_chadwick_play(
     p_game_id_text       TEXT,       -- Retrosheet/Chadwick game ID string
     p_at_bat_number      INT,
@@ -95,8 +96,10 @@ CREATE OR REPLACE FUNCTION util.ingest_chadwick_play(
     p_home_team_code     CHAR(3),
     p_away_team_code     CHAR(3),
     p_venue_id           BIGINT,
-    p_home_team_id       BIGINT,
-    p_away_team_id       BIGINT
+    p_home_team_id       BIGINT,     -- MLBAM team ID, will be resolved via stg.team_identity
+    p_away_team_id       BIGINT,
+    p_batter_name        TEXT,       -- Player name for identity resolution
+    p_pitcher_name       TEXT
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -106,6 +109,10 @@ DECLARE
     v_canonical_game_id   UUID;
     v_plate_appearance_id UUID;
     v_pitch_id            UUID;
+    v_resolved_batter_id  BIGINT;
+    v_resolved_pitcher_id BIGINT;
+    v_resolved_home_team  BIGINT;
+    v_resolved_away_team  BIGINT;
 BEGIN
     -- Detect source system from game ID format
     v_source_system := CASE
@@ -137,7 +144,12 @@ BEGIN
     )
     SELECT canonical_game_id INTO v_canonical_game_id FROM bridge;
 
-    -- ── Step 2: Upsert core.games row (FK required before plate_appearances) ─
+    -- ── Step 2: Resolve team IDs through stg.team_identity bridge ───────────
+    -- This ensures teams exist in core.team before game insert
+    v_resolved_home_team := util.resolve_team_id(p_home_team_id, NULL);
+    v_resolved_away_team := util.resolve_team_id(p_away_team_id, NULL);
+
+    -- ── Step 3: Upsert core.games row (FK required before plate_appearances) ─
     INSERT INTO core.games (
         game_id, venue_id, home_team_id, away_team_id,
         game_date, season, official_status
@@ -145,15 +157,25 @@ BEGIN
     VALUES (
         v_canonical_game_id,
         p_venue_id,
-        p_home_team_id,
-        p_away_team_id,
+        v_resolved_home_team,
+        v_resolved_away_team,
         p_game_date,
         EXTRACT(YEAR FROM p_game_date)::INT,
         'final'
     )
-    ON CONFLICT (game_id) DO NOTHING;
+    ON CONFLICT (game_id) DO UPDATE
+        SET venue_id = EXCLUDED.venue_id,
+            home_team_id = EXCLUDED.home_team_id,
+            away_team_id = EXCLUDED.away_team_id,
+            game_date = EXCLUDED.game_date,
+            season = EXCLUDED.season;
 
-    -- ── Step 3: Upsert core.plate_appearances (one row per PA, not per pitch) ─
+    -- ── Step 4: Resolve player IDs through stg.player_identity bridge ───────
+    -- This ensures players exist in core.player before PA insert
+    v_resolved_batter_id := util.resolve_player_id(p_batter_id, p_batter_name);
+    v_resolved_pitcher_id := util.resolve_player_id(p_pitcher_id, p_pitcher_name);
+
+    -- ── Step 5: Upsert core.plate_appearances (one row per PA, not per pitch) ─
     INSERT INTO core.plate_appearances (
         game_id, batter_id, pitcher_id, inning, half_inning,
         outs_before, pa_sequence_order, event_result_code,
@@ -161,8 +183,8 @@ BEGIN
     )
     VALUES (
         v_canonical_game_id,
-        p_batter_id,
-        p_pitcher_id,
+        v_resolved_batter_id,
+        v_resolved_pitcher_id,
         p_inning,
         p_half_inning,
         p_outs_before,
@@ -171,7 +193,13 @@ BEGIN
         p_data_source_lineage,
         p_workspace_id
     )
-    ON CONFLICT (game_id, pa_sequence_order) DO NOTHING
+    ON CONFLICT (game_id, pa_sequence_order) DO UPDATE
+        SET batter_id = EXCLUDED.batter_id,
+            pitcher_id = EXCLUDED.pitcher_id,
+            inning = EXCLUDED.inning,
+            half_inning = EXCLUDED.half_inning,
+            outs_before = EXCLUDED.outs_before,
+            event_result_code = EXCLUDED.event_result_code
     RETURNING plate_appearance_id INTO v_plate_appearance_id;
 
     IF v_plate_appearance_id IS NULL THEN
@@ -182,7 +210,7 @@ BEGIN
            AND pa_sequence_order = p_pa_sequence_order;
     END IF;
 
-    -- ── Step 4: Insert pitch telemetry ──────────────────────────────────────
+    -- ── Step 6: Insert pitch telemetry ──────────────────────────────────────
     INSERT INTO core.pitches (
         plate_appearance_id, pitch_sequence_num, balls_before, strikes_before,
         pitch_type, pitch_call, release_velocity, spin_rate,
@@ -238,6 +266,7 @@ EXECUTE FUNCTION util.stg_touch_updated_at();
 
 -- Unified ingestion entry point (delegates to source-specific logic)
 -- This single function reduces duplication between ingest_statcast_play and ingest_chadwick_play.
+-- Issue #36 fix: resolves MLBAM IDs through stg.player_identity -> core.player bridge
 CREATE OR REPLACE FUNCTION util.ingest_play_event(
     p_source_system       VARCHAR(30),  -- 'statcast', 'retrosheet', 'chadwick', 'mlb_api'
     p_source_game_key     VARCHAR(50),  -- game_pk (statcast) or retrosheet game ID
@@ -264,7 +293,11 @@ CREATE OR REPLACE FUNCTION util.ingest_play_event(
     p_plate_z             NUMERIC(4,2),
     p_game_date           DATE,
     p_home_team_code      CHAR(3),
-    p_away_team_code      CHAR(3)
+    p_away_team_code      CHAR(3),
+    p_home_team_id        BIGINT,     -- MLBAM team ID, will be resolved via stg.team_identity
+    p_away_team_id        BIGINT,
+    p_batter_name         TEXT,       -- Player name for identity resolution
+    p_pitcher_name        TEXT
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -273,6 +306,8 @@ DECLARE
     v_plate_appearance_id UUID;
     v_canonical_game_id   UUID;
     v_pitch_id            UUID;
+    v_resolved_batter_id  BIGINT;
+    v_resolved_pitcher_id BIGINT;
 BEGIN
     -- Resolve or create canonical game identity
     WITH game_bridge AS (
@@ -299,18 +334,35 @@ BEGIN
     )
     SELECT canonical_game_id INTO v_canonical_game_id FROM game_bridge;
 
-    -- Insert plate appearance
+    -- Resolve player IDs through stg.player_identity bridge
+    -- This ensures players exist in core.player before PA insert
+    v_resolved_batter_id := util.resolve_player_id(p_batter_id, p_batter_name);
+    v_resolved_pitcher_id := util.resolve_player_id(p_pitcher_id, p_pitcher_name);
+
+    -- Insert plate appearance (idempotent with ON CONFLICT DO UPDATE)
     INSERT INTO core.plate_appearances (
         game_id, batter_id, pitcher_id, inning, half_inning,
         outs_before, pa_sequence_order, event_result_code,
         data_source_lineage, workspace_id, created_at
     )
     VALUES (
-        v_canonical_game_id, p_batter_id, p_pitcher_id,
+        v_canonical_game_id, v_resolved_batter_id, v_resolved_pitcher_id,
         p_inning, p_half_inning, p_outs_before, p_pa_sequence_order,
         p_event_result_code, p_data_source_lineage, p_workspace_id, NOW()
     )
+    ON CONFLICT (game_id, pa_sequence_order) DO UPDATE
+        SET batter_id = EXCLUDED.batter_id,
+            pitcher_id = EXCLUDED.pitcher_id
     RETURNING plate_appearance_id INTO v_plate_appearance_id;
+
+    -- If no row returned (shouldn't happen with DO UPDATE), fetch existing
+    IF v_plate_appearance_id IS NULL THEN
+        SELECT plate_appearance_id
+          INTO v_plate_appearance_id
+          FROM core.plate_appearances
+         WHERE game_id = v_canonical_game_id
+           AND pa_sequence_order = p_pa_sequence_order;
+    END IF;
 
     -- Insert pitch telemetry
     INSERT INTO core.pitches (
@@ -323,6 +375,7 @@ BEGIN
         p_pitch_type, p_pitch_call, p_release_velocity, p_spin_rate,
         p_induced_vertical_break, p_horizontal_break, p_plate_x, p_plate_z, NOW()
     )
+    ON CONFLICT (plate_appearance_id, pitch_sequence_num) DO NOTHING
     RETURNING pitch_id INTO v_pitch_id;
 
     RETURN v_pitch_id;
@@ -334,7 +387,29 @@ END;
 $$;
 
 COMMENT ON FUNCTION util.ingest_play_event IS
-    'Unified play-event ingestion entry point for all source systems. '
-    'Source-specific functions (ingest_statcast_play, ingest_chadwick_play) now delegate here.';
+    'Unified play-event ingestion entry point for all source systems.
+     Resolves MLBAM IDs through stg.player_identity -> core.player bridge.
+     Source-specific functions (ingest_statcast_play, ingest_chadwick_play) now delegate here.';
+
+-- ---------------------------------------------------------------------------
+-- Triggers for mlbapi staging tables (moved from 007_mlbapi_extraction.sql)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_stg_mlbapi_game_updated_at ON stg.mlbapi_game;
+CREATE TRIGGER trg_stg_mlbapi_game_updated_at
+    BEFORE UPDATE ON stg.mlbapi_game
+    FOR EACH ROW
+    EXECUTE FUNCTION util.stg_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_stg_mlbapi_person_updated_at ON stg.mlbapi_person;
+CREATE TRIGGER trg_stg_mlbapi_person_updated_at
+    BEFORE UPDATE ON stg.mlbapi_person
+    FOR EACH ROW
+    EXECUTE FUNCTION util.stg_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_stg_mlbapi_team_updated_at ON stg.mlbapi_team;
+CREATE TRIGGER trg_stg_mlbapi_team_updated_at
+    BEFORE UPDATE ON stg.mlbapi_team
+    FOR EACH ROW
+    EXECUTE FUNCTION util.stg_touch_updated_at();
 
 COMMIT;

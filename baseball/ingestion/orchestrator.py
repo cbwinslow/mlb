@@ -26,7 +26,7 @@ class IngestRunInfo:
     completed_at: Optional[datetime] = None
 
 
-def startingestrun(
+async def startingestrun(
     conn: psycopg.AsyncConnection,
     source_endpoint_id: int,
     run_metadata: Optional[dict] = None,
@@ -50,7 +50,7 @@ def startingestrun(
         RETURNING ingest_run_id
     """
     run_metadata_json = run_metadata or {}
-    result = conn.execute(
+    result = await conn.execute(
         sql,
         {
             "ingest_run_id": ingest_run_id,
@@ -58,10 +58,10 @@ def startingestrun(
             "run_metadata": run_metadata_json,
         },
     )
-    return result.fetchone()[0]
+    return (await result.fetchone())[0]
 
 
-def finishingestrun(
+async def finishingestrun(
     conn: psycopg.AsyncConnection,
     ingest_run_id: uuid.UUID,
     status: str = "completed",
@@ -82,7 +82,7 @@ def finishingestrun(
             error_message = %(error_message)s
         WHERE ingest_run_id = %(ingest_run_id)s
     """
-    conn.execute(
+    await conn.execute(
         sql,
         {
             "ingest_run_id": ingest_run_id,
@@ -90,6 +90,7 @@ def finishingestrun(
             "error_message": error_message,
         },
     )
+    await conn.commit()
 
 
 class IngestionOrchestrator:
@@ -116,7 +117,7 @@ class IngestionOrchestrator:
     async def __aenter__(self) -> IngestRunInfo:
         async with self.pool.acquire() as conn:
             self._conn = conn
-            self.ingest_run_id = startingestrun(
+            self.ingest_run_id = await startingestrun(
                 conn, self.source_endpoint_id, self.run_metadata
             )
             return IngestRunInfo(
@@ -128,14 +129,14 @@ class IngestionOrchestrator:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         async with self.pool.acquire() as conn:
             if exc_type is not None:
-                finishingestrun(
+                await finishingestrun(
                     conn,
                     self.ingest_run_id,
                     status="failed",
                     error_message=str(exc_val) if exc_val else None,
                 )
             else:
-                finishingestrun(conn, self.ingest_run_id, status="completed")
+                await finishingestrun(conn, self.ingest_run_id, status="completed")
 
     @asynccontextmanager
     async def track_run(
@@ -146,7 +147,7 @@ class IngestionOrchestrator:
     ) -> AsyncIterator[IngestRunInfo]:
         """Create an ingest_run context without storing state on self."""
         async with pool.acquire() as conn:
-            run_id = startingestrun(conn, endpoint_id, metadata or {})
+            run_id = await startingestrun(conn, endpoint_id, metadata or {})
             run_info = IngestRunInfo(
                 ingest_run_id=run_id,
                 source_endpoint_id=endpoint_id,
@@ -156,4 +157,4 @@ class IngestionOrchestrator:
             yield run_info
         finally:
             async with pool.acquire() as conn:
-                finishingestrun(conn, run_id, status="completed")
+                await finishingestrun(conn, run_id, status="completed")

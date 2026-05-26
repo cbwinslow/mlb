@@ -1,6 +1,7 @@
 """Database bootstrap and administration commands."""
 from __future__ import annotations
 
+import functools
 from urllib.parse import urlparse
 
 import subprocess
@@ -26,6 +27,22 @@ def _normalize_url(url: str) -> str:
     return url
 
 
+def _get_sql_files() -> list[Path]:
+    """Get SQL files in proper layer order (010 through 090)."""
+    sql_files = []
+    for layer in ["010", "020", "030", "040", "050", "060", "070", "080", "090"]:
+        for subdir in sorted(SQL_ROOT.glob(f"{layer}_*")):
+            if subdir.is_dir():
+                sql_files.extend(sorted(subdir.glob("*.sql")))
+    return sql_files
+
+
+@functools.lru_cache(maxsize=1)
+def get_sql_files() -> tuple[Path, ...]:
+    """Cached getter for SQL file paths in layer order."""
+    return tuple(_get_sql_files())
+
+
 def run_bootstrap(
     database_url: str,
     recreate: bool = False,
@@ -43,8 +60,8 @@ def run_bootstrap(
         _drop_database(pg_url)
         _create_database(pg_url)
 
-    # Get all SQL files in sorted order (010 through 090)
-    sql_files = sorted(SQL_ROOT.rglob("*.sql"))
+    # Get SQL files in proper layer order (010 through 090)
+    sql_files = get_sql_files()
     console.print(f"[blue]Found {len(sql_files)} SQL files to apply[/blue]")
 
     with Progress(

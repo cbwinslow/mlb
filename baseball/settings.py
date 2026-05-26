@@ -35,6 +35,7 @@ class DatabaseSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="",
+        env_file=str(ENV_FILE) if ENV_FILE.exists() else None,
         extra="ignore",
     )
 
@@ -50,6 +51,7 @@ class WorkspaceSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="",
+        env_file=str(ENV_FILE) if ENV_FILE.exists() else None,
         extra="ignore",
     )
 
@@ -65,6 +67,7 @@ class OpsSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="",
+        env_file=str(ENV_FILE) if ENV_FILE.exists() else None,
         extra="ignore",
     )
 
