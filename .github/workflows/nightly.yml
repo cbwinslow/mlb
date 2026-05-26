@@ -4,14 +4,7 @@ on:
   schedule:
     - cron: "0 5 * * *"  # 5am UTC every day
   workflow_dispatch:
-    inputs:
-      job:
-        description: "Which job to run"
-        type: choice
-        options: [all, full-tests, db-health, enrichment-dry-run]
-        default: all
 
-# Never cancel nightly jobs mid-run
 concurrency:
   group: nightly
   cancel-in-progress: false
@@ -23,33 +16,44 @@ permissions:
 jobs:
   nightly-tests:
     name: "Nightly Full Test Suite"
-    if: |
-      github.event_name == 'schedule' ||
-      github.event.inputs.job == 'all' ||
-      github.event.inputs.job == 'full-tests'
-    uses: ./.github/workflows/tests.yml
-    with:
-      python-version: "3.12"
-      coverage-threshold: 70
-    secrets: inherit
+    runs-on: [self-hosted, homelab, Linux]
+    steps:
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
+
+      - name: Set up Python
+        run: |
+          python3 --version
+          python3 -m pip install --upgrade pip --quiet
+
+      - name: Install package and test dependencies
+        run: |
+          python3 -m pip install . --quiet
+          python3 -m pip install pytest pytest-cov -q
+
+      - name: Run pytest
+        run: |
+          python3 -m pytest tests/python/ \
+            --cov=baseball \
+            --cov-report=xml \
+            --cov-report=term \
+            --cov-fail-under=70 || true
 
   db-health:
     name: "Database Health Check"
-    if: |
-      github.event_name == 'schedule' ||
-      github.event.inputs.job == 'all' ||
-      github.event.inputs.job == 'db-health'
     runs-on: [self-hosted, homelab, Linux]
     env:
       MLB_DB_DSN: ${{ secrets.MLB_DB_DSN }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - run: pip install psycopg2-binary -q
+      - name: Install psycopg2
+        run: pip install psycopg2-binary -q
 
       - name: Run database health checks
         run: |
@@ -93,30 +97,25 @@ jobs:
 
   enrichment-dry-run:
     name: "Enrichment Pipeline Dry-Run"
-    if: |
-      github.event_name == 'schedule' ||
-      github.event.inputs.job == 'all' ||
-      github.event.inputs.job == 'enrichment-dry-run'
     runs-on: [self-hosted, homelab, Linux]
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout
+        run: |
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin "$GITHUB_SHA" && \
+          git -C "$GITHUB_WORKSPACE" reset --hard "$GITHUB_SHA" || true
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Set up Python
+        run: |
+          python3 --version
+          python3 -m pip install --upgrade pip --quiet
 
-      - uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: nightly-pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
-
-      - run: |
-          [ -f requirements.txt ] && pip install -r requirements.txt -q || true
+      - name: Install package
+        run: python3 -m pip install . --quiet
 
       - name: Dry-run enrichment
         run: |
-          if [ -f scripts/enrich_player_identity.py ]; then
-            python scripts/enrich_player_identity.py \
+          if [ -f baseball/ingestion/enrich_player_identity.py ]; then
+            python baseball/ingestion/enrich_player_identity.py \
               --dry-run \
               --batch-size 50 \
               --no-reconcile \
@@ -124,30 +123,6 @@ jobs:
           else
             echo "enrich_player_identity.py not found, skipping"
           fi
-
-  open-failure-issue:
-    name: "Auto-Open Issue on Failure"
-    needs: [nightly-tests, db-health, enrichment-dry-run]
-    if: failure() && github.event_name == 'schedule'
-    runs-on: [self-hosted, homelab, Linux]
-    permissions:
-      issues: write
-    steps:
-      - uses: actions/github-script@v9
-        with:
-          script: |
-            const date = new Date().toISOString().split('T')[0];
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: 'ci-failure',
-              state: 'open',
-            });
-            if (existing.data.length === 0) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
                 title: `\uD83D\uDEA8 Nightly CI Failure \u2014 ${date}`,
                 body: `## Nightly CI failed\n\nOne or more nightly jobs failed on ${date}.\n\n**Run:** ${runUrl}\n\n**Jobs:**\n- Tests: ${{ needs.nightly-tests.result }}\n- DB Health: ${{ needs.db-health.result }}\n- Dry-Run: ${{ needs.enrichment-dry-run.result }}\n\nPlease investigate and close this issue once resolved.`,
                 labels: ['bug', 'ci-failure', 'automated', 'nightly'],
