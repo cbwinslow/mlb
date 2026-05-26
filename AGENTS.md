@@ -193,6 +193,10 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 ---
 
+## Rules
+    1. do not ever use a postgresql docker container for production operations. we can create one to publish with the release of the software but as far as operations we never ever use the container for production operations.
+    
+
 ## Conventions for AI Agents
 
 ### Before Any Work

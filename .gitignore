@@ -148,5 +148,20 @@ coverage.json
 *.sqlite3
 *.db
 
+# Embedded git repos in mcp/ (use submodules if needed)
+mcp/*/.git
+
 # MCP / AI tooling
 .refact/
+
+# Embedded git repos in mcp/ - do not commit as submodules
+mcp/Public-ESPN-API/
+mcp/StatsPlus-MCP/
+mcp/baseball-mcp/
+mcp/espn-fantasy-claude-openclaw/
+mcp/mlb-api-mcp/
+mcp/mlb-mcp/
+mcp/mlb_mcp/
+mcp/oddshub/
+mcp/statcast-mcp/
+mcp/yahoo-fantasy-baseball-mcp/
