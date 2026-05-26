@@ -165,3 +165,7 @@ mcp/mlb_mcp/
 mcp/oddshub/
 mcp/statcast-mcp/
 mcp/yahoo-fantasy-baseball-mcp/
+
+# AI planning artifacts
+.kilo/plans/
+.testagent/
