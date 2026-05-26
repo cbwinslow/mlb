@@ -153,9 +153,14 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Removed redundant `.refact/buddy/` entries from `.gitignore`
     - Fixed Python linting issues in `engine.py`, `loaders.py`, `orchestrator.py`, `enrich_player_identity.py`, `cli.py`, `settings.py`
     - All 197 tests passing
+- [x] **Alembic infrastructure:** Add Alembic for schema version tracking (DEC-009)
+    - Created `alembic/` directory with env.py, ini, script template
+    - Added initial migration `001_initial_schema.py`
+    - Added `baseball migrate` CLI commands
+    - Added alembic to dev dependencies
 
 ### Outstanding 🔲
-- [ ] **Next:** Alembic integration — manual DDL in `sql/` + Alembic version tracking only (DEC-009); see ROADMAP.md Milestone 2
+- [ ] **Next:** Create Alembic migrations for sql/010-090 directories (DEC-009); see ROADMAP.md Milestone 2
 - [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
 - [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
 
