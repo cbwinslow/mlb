@@ -188,3 +188,59 @@ def ingest_statcast(
 
 
 app.add_typer(ingest_app, name="ingest")
+
+
+# ---------------------------------------------------------------------------
+# Migration commands (Alembic wrapper)
+# ---------------------------------------------------------------------------
+
+migrate_app = typer.Typer(help="Alembic database migrations")
+
+
+@migrate_app.command("upgrade")
+def migrate_upgrade(
+    revision: str = typer.Argument("head", help="Target revision"),
+) -> None:
+    """Run Alembic migrations to the target revision."""
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, revision)
+    console.print(f"[green]Migrations upgraded to {revision}[/green]")
+
+
+@migrate_app.command("downgrade")
+def migrate_downgrade(
+    revision: str = typer.Argument("-1", help="Target revision"),
+) -> None:
+    """Downgrade Alembic migrations by one revision."""
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_cfg = Config("alembic.ini")
+    command.downgrade(alembic_cfg, revision)
+    console.print(f"[green]Migrations downgraded to {revision}[/green]")
+
+
+@migrate_app.command("current")
+def migrate_current() -> None:
+    """Show current migration revision."""
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_cfg = Config("alembic.ini")
+    command.current(alembic_cfg)
+
+
+@migrate_app.command("history")
+def migrate_history() -> None:
+    """Show migration history."""
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_cfg = Config("alembic.ini")
+    command.history(alembic_cfg)
+
+
+app.add_typer(migrate_app, name="migrate")
