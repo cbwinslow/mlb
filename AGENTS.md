@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-25 (configuration fixes complete, pyproject.toml, .gitignore, Python linting)
+> Last updated: 2026-05-25 (configuration fixes complete, pyproject.toml, .gitignore, Python linting, .env injection fix)
 
 ---
 
@@ -158,6 +158,20 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Added initial migration `001_initial_schema.py`
     - Added `baseball migrate` CLI commands
     - Added alembic to dev dependencies
+    - Generated migrations for sql/010-090 directories
+- [x] **Bootstrap command:** Implement `baseball db-init` with SQL file execution
+    - Added `baseball/db.py` with `run_bootstrap()` function
+    - Updated `db-init` command to apply SQL files via psql
+    - Added `--dry-run` and `--recreate` options
+
+    - Created `alembic/` directory with env.py, ini, script template
+    - Added initial migration `001_initial_schema.py`
+    - Added `baseball migrate` CLI commands
+    - Added alembic to dev dependencies
+- [x] **Fix .env injection:** Fixed pydantic-settings nested model .env loading
+    - Added `env_file` config to `DatabaseSettings`, `WorkspaceSettings`, `OpsSettings` classes
+    - Added `python.envFile` setting to `.vscode/settings.json` for VS Code integration
+    - Updated `init_nested_settings` validator to rely on nested classes' own env_file config
 
 ### Outstanding 🔲
 - [ ] **Next:** Create Alembic migrations for sql/010-090 directories (DEC-009); see ROADMAP.md Milestone 2
