@@ -46,3 +46,17 @@ This document tracks the audit of all Markdown files for stale references after 
 - [x] ROADMAP.md updated with completed milestone
 - [x] OBJECTIVES.md updated with correct table names
 - [x] Bootstrap verified (197/197 tests pass)
+- [x] Ingestion modules implemented (retrosheet, statcast, mlbapi, fangraphs, bref, espn, odds)
+- [x] Vector database foundation added (raw_vector schema, Haystack integration)
+- [x] Test suite expanded to 266 tests passing
+
+## 2026-05-27 Updates
+
+| File | Status | Notes |
+|------|--------|-------|
+| `AGENTS.md` | ✅ Updated | Added source ingesters and vector DB to Outstanding Work |
+| `README.md` | ✅ Updated | Project status section updated with completed work |
+| `ROADMAP.md` | ✅ Updated | Milestones 2 and 3 marked complete |
+| `MILESTONES.md` | ✅ Updated | Added completion status and notes |
+| `testing-strategy.md` | ✅ Updated | Added ingestion tests section, updated test counts |
+| `docs/README` | ✅ Updated | Added testing-strategy.md and audit_checklist.md to index |

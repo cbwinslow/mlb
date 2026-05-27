@@ -1,7 +1,9 @@
 # MLB Platform: Comprehensive Testing Strategy
 
-> **Last updated:** 2026-05-19
+> **Last updated:** 2026-05-27
 > **Goal:** 100% test coverage with hundreds of tests across Python, SQL, and integration layers
+
+**Current Status:** 266 tests passing
 
 ---
 
@@ -19,14 +21,14 @@ This document outlines the comprehensive testing strategy for the MLB analytics 
 
 ## Test Coverage Targets
 
-| Layer | Target Coverage | Estimated Tests | Priority |
-|-------|-----------------|-----------------|----------|
-| Python Unit Tests | 100% | 200+ | High |
-| SQL Schema Tests | 100% | 100+ | High |
-| SQL Function Tests | 100% | 50+ | High |
-| Integration Tests | 90%+ | 50+ | Medium |
-| Property-Based Tests | 80%+ | 30+ | Medium |
-| **Total** | **100%** | **430+** | - |
+| Layer | Target Coverage | Current Tests | Priority |
+|-------|-----------------|---------------|----------|
+| Python Unit Tests | 100% | 266+ | High |
+| SQL Schema Tests | 100% | - | High |
+| SQL Function Tests | 100% | - | High |
+| Integration Tests | 90%+ | - | Medium |
+| Property-Based Tests | 80%+ | - | Medium |
+| **Total** | **100%** | **266+** | - |
 
 ---
 
@@ -357,6 +359,12 @@ tests/
 - [ ] CI/CD setup
 - [ ] Coverage reporting
 
+### Phase 5: Ingestion & Vector Tests (Week 5)
+- [x] Ingestion module tests (base.py, retrosheet.py, statcast.py, mlbam.py, fangraphs.py, bref.py, espn.py, odds.py)
+- [x] Vector database tests (document_store.py)
+- [ ] End-to-end ingestion workflow tests
+- [ ] Haystack integration tests
+
 ---
 
 ## Success Criteria
@@ -398,3 +406,33 @@ pytest tests/property/ -v
 3. Should we mock external APIs (StatsAPI, pybaseball) or use recorded responses?
 4. Do we need performance benchmarks as part of the test suite?
 5. Should we include data quality tests for the raw data sources?
+
+---
+
+## Completed Ingestion Tests (2026-05-27)
+
+### Ingestion Module Tests
+**Location:** `tests/python/test_ingestion/`
+
+**Tests Added:**
+- [x] `test_base.py` - BaseIngester ABC tests
+- [x] `test_retrosheet.py` - RetrosheetIngester validation and ingestion
+- [x] `test_statcast.py` - StatcastIngester season/date range ingestion
+- [x] `test_mlbam.py` - MLBAMIngester endpoint methods
+- [x] `test_fangraphs.py` - FanGraphsIngester stats/splits ingestion
+- [x] `test_bref.py` - BRefIngester data ingestion
+- [x] `test_espn.py` - ESPNIngester schedule/scores ingestion
+- [x] `test_odds.py` - OddsIngester date/season ingestion
+- [x] `test_orchestrator.py` - Ingestion orchestration and parallel execution
+- [x] `test_engine.py` - Database engine and connection management
+
+**Total Ingestion Tests:** 69 tests added
+
+### Vector Database Tests (Pending)
+**Location:** `tests/python/test_vector/`
+
+**Tests to Add:**
+- [ ] `test_document_store.py` - VectorStoreManager operations
+- [ ] `test_qdrant_client.py` - Qdrant integration tests
+- [ ] `test_pgvector.py` - PgVector integration tests
+- [ ] `test_embeddings.py` - Embedding generation and storage

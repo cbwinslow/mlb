@@ -92,13 +92,13 @@ BEGIN
   INTO missing_functions
   FROM (
     SELECT unnest(ARRAY[
-      'util.sha256text(text)',
-      'util.registerpayloadhash(smallint,bigint,uuid,text,bytea)',
-      'util.startingestrun(text,text,text,jsonb,text,date,date)',
-      'util.normalizeretrosheetrecordtype(text)',
-      'util.buildretrosheetgameid(text,date,smallint)',
-      'util.shouldstoplivepolling(text,text,text)',
-      'util.claimnextjob(text,text,integer)'
+      'util.sha256_text(text)',
+      'util.register_payload_hash(smallint,bigint,uuid,text,bytea)',
+      'util.start_ingest_run(text,text,text,jsonb,text,date,date)',
+      'util.normalize_retrosheet_record_type(text)',
+      'util.build_retrosheet_game_id(text,date,smallint)',
+      'util.should_stop_live_polling(text,text,text)',
+      'util.claim_next_job(text,text,integer)'
     ]) AS fn
   ) expected
   WHERE to_regprocedure(expected.fn) IS NULL;

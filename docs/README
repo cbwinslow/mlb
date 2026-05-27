@@ -19,6 +19,8 @@ For **how to apply the SQL**, see `sql/README.md` instead.
 | `modeling.md` | How are prediction problems, feature sets, training runs, backtests, and simulations represented? |
 | `operations.md` | How are jobs scheduled, queued, retried, and recovered? How does live polling work? |
 | `project-summary.md` | What has been built so far? What is the recommended repository layout and extension roadmap? |
+| `testing-strategy.md` | How is the platform tested? What test coverage targets exist? |
+| `audit_checklist.md` | What documentation changes were made during schema refactor? |
 
 ## Recommended reading order
 

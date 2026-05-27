@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-27 (Issue #31 complete, vector integration added, ingestion modules finalized)
+> Last updated: 2026-05-27 (spray/zone MVs complete, MV source fixes, all ingestion modules committed)
 
 ---
 
@@ -133,6 +133,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/070_ml_ops/009_source_ingestion_specs.sql` | Source ingestion spec tables | ✅ Complete |
 | `sql/070_ml_ops/010_mv_statcast_player_summary.sql` | **Baseball analytics MVs**: `mv_player_statcast_summary`, `mv_pitch_arsenal_by_season`, `mv_game_score_context` | ✅ Added 2026-05-19 |
 | `sql/070_ml_ops/011_mart_views.sql` | Mart views (`mart.v_workspace_model_catalog`) | ✅ Added 2026-05-24 |
+| `sql/070_ml_ops/012_mv_spray_zone_analytics.sql` | Spray/zone analytics MVs (`mv_batter_spray_heatmap`, `mv_pitcher_zone_profile`) | ✅ Added 2026-05-26 |
 
 ---
 
@@ -200,8 +201,12 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 ### Outstanding 🔲
 - [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
-- [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
 - [ ] Add vector embedding CLI commands (`baseball vector init`, `baseball vector embed-players`)
+
+### Completed ✅
+- [x] **Spray/Zone Analytics MVs:** Created `sql/070_ml_ops/012_mv_spray_zone_analytics.sql` with `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile`
+    - Queries `raw_statcast.pitch` for spray (hc_x, hc_y) and zone (1-9) analytics
+    - Fixed existing MVs in `010_mv_statcast_player_summary.sql` to query `raw_statcast.pitch` directly instead of non-existent `core.pitch`
 
 ### Completed ✅
 - [x] **Issue #31 (Parts A-D):** Bootstrap order, dev dependencies, .gitignore, ON CONFLICT handling

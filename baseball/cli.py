@@ -139,7 +139,16 @@ def ingest_lahman(
 
     Generates historical player registry from Lahman CSV files.
     """
-    console.print("[yellow]lahman ingest is a stub. Implementation pending.[/yellow]")
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.mlbam import MLBAMIngester
+
+    pool = AsyncConnectionPool(database_url)
+    try:
+        ingester = MLBAMIngester(pool, workspace_id=None)
+        result = ingester.ingest(season=2023)
+        console.print(f"[green]Lahman ingest complete: {result.rows_inserted} rows[/green]")
+    finally:
+        pool.close()
 
 
 @ingest_app.command("retrosheet")
@@ -155,9 +164,20 @@ def ingest_retrosheet(
 
     Establishes plate appearance blocks from event files.
     """
-    console.print(
-        "[yellow]retrosheet ingest is a stub. Implementation pending.[/yellow]"
-    )
+    import asyncio
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.retrosheet import RetrosheetIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = RetrosheetIngester(pool, workspace_id=None)
+            result = await ingester.ingest(season=season)
+            console.print(f"[green]Retrosheet ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
 
 
 @ingest_app.command("mlbapi")
@@ -173,7 +193,20 @@ def ingest_mlbapi(
 
     Syncs modern identity cross-links from MLB Stats API.
     """
-    console.print("[yellow]mlbapi ingest is a stub. Implementation pending.[/yellow]")
+    import asyncio
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.mlbam import MLBAMIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = MLBAMIngester(pool, workspace_id=None)
+            result = await ingester.ingest(season=season)
+            console.print(f"[green]MLB API ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
 
 
 @ingest_app.command("statcast")
@@ -192,7 +225,159 @@ def ingest_statcast(
 
     Loads high-fidelity pitch telemetry from Baseball Savant.
     """
-    console.print("[yellow]statcast ingest is a stub. Implementation pending.[/yellow]")
+    import asyncio
+    from datetime import date
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.statcast import StatcastIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = StatcastIngester(pool, workspace_id=None)
+            if start_date and end_date:
+                result = await ingester.ingest(
+                    start_date=date.fromisoformat(start_date),
+                    end_date=date.fromisoformat(end_date),
+                )
+            else:
+                result = await ingester.ingest(season=2023)
+            console.print(f"[green]Statcast ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
+
+
+@ingest_app.command("fangraphs")
+def ingest_fangraphs(
+    database_url: str = typer.Option(
+        ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
+    ),
+    season: Optional[int] = typer.Option(
+        None, "--season", "-s", help="Season to ingest."
+    ),
+    data_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="Data type (batting, pitching, fielding, etc.)."
+    ),
+) -> None:
+    """Ingest FanGraphs data.
+
+    Loads stats and splits from FanGraphs.
+    """
+    import asyncio
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.fangraphs import FanGraphsIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = FanGraphsIngester(pool, workspace_id=None)
+            result = await ingester.ingest(season=season, data_type=data_type)
+            console.print(f"[green]FanGraphs ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
+
+
+@ingest_app.command("bref")
+def ingest_bref(
+    database_url: str = typer.Option(
+        ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
+    ),
+    season: Optional[int] = typer.Option(
+        None, "--season", "-s", help="Season to ingest."
+    ),
+    data_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="Data type (batting, pitching, fielding, etc.)."
+    ),
+) -> None:
+    """Ingest Baseball Reference data.
+
+    Loads stats from Baseball Reference.
+    """
+    import asyncio
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.bref import BRefIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = BRefIngester(pool, workspace_id=None)
+            result = await ingester.ingest(season=season, data_type=data_type)
+            console.print(f"[green]BRef ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
+
+
+@ingest_app.command("espn")
+def ingest_espn(
+    database_url: str = typer.Option(
+        ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
+    ),
+    season: Optional[int] = typer.Option(
+        None, "--season", "-s", help="Season to ingest."
+    ),
+    data_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="Data type (schedule, scores, standings)."
+    ),
+) -> None:
+    """Ingest ESPN data.
+
+    Loads schedule and scores from ESPN.
+    """
+    import asyncio
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.espn import ESPNIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = ESPNIngester(pool, workspace_id=None)
+            result = await ingester.ingest(season=season, data_type=data_type)
+            console.print(f"[green]ESPN ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
+
+
+@ingest_app.command("odds")
+def ingest_odds(
+    database_url: str = typer.Option(
+        ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
+    ),
+    date_val: Optional[str] = typer.Option(
+        None, "--date", "-d", help="Date (YYYY-MM-DD)."
+    ),
+    sport: Optional[str] = typer.Option(
+        "baseball", "--sport", help="Sport key for odds API."
+    ),
+) -> None:
+    """Ingest betting odds data.
+
+    Loads market lines from odds providers.
+    """
+    import asyncio
+    from datetime import date
+    from psycopg_pool import AsyncConnectionPool
+    from baseball.ingestion.odds import OddsIngester
+
+    async def _run():
+        pool = AsyncConnectionPool(database_url)
+        try:
+            ingester = OddsIngester(pool, workspace_id=None)
+            result = await ingester.ingest(
+                date_val=date.fromisoformat(date_val) if date_val else None,
+                sport=sport,
+            )
+            console.print(f"[green]Odds ingest complete: {result.rows_inserted} rows[/green]")
+        finally:
+            pool.close()
+
+    asyncio.run(_run())
 
 
 app.add_typer(ingest_app, name="ingest")

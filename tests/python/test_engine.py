@@ -307,12 +307,12 @@ class TestCompleteIngestRun:
 
         await ingest_engine.complete_ingest_run(
             ingest_run_id="run-uuid-123",
-            status="completed",
+            status="succeeded",
         )
 
         sql_arg = mock_conn.execute.call_args[0][0]
         assert "UPDATE meta.ingest_run" in sql_arg
-        assert "completed_at" in sql_arg
+        assert "finished_at" in sql_arg
 
     @pytest.mark.asyncio
     async def test_marks_failed_with_error(self, ingest_engine, mock_pool):
@@ -329,5 +329,5 @@ class TestCompleteIngestRun:
         )
 
         sql_arg = mock_conn.execute.call_args[0][0]
-        assert "status" in sql_arg
+        assert "run_status" in sql_arg
         assert "error_message" in sql_arg

@@ -10,7 +10,7 @@ import uuid
 
 import pytest
 
-from baseball.ingestion.orchestrator import IngestionOrchestrator, startingestrun, finishingestrun
+from baseball.ingestion.orchestrator import IngestionOrchestrator, start_ingest_run, finish_ingest_run
 
 
 # ---------------------------------------------------------------------------
@@ -73,12 +73,12 @@ class TestIngestionOrchestratorInit:
 
 
 # ---------------------------------------------------------------------------
-# startingestrun Tests
+# start_ingest_run Tests
 # ---------------------------------------------------------------------------
 
 
 class TestStartIngestRun:
-    """Tests for startingestrun() function."""
+    """Tests for start_ingest_run() function."""
 
     @pytest.mark.asyncio
     async def test_inserts_ingest_run_record(self, mock_conn):
@@ -87,7 +87,7 @@ class TestStartIngestRun:
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
 
-        result = await startingestrun(mock_conn, source_endpoint_id=1)
+        result = await start_ingest_run(mock_conn, source_endpoint_id=1)
 
         assert result == uuid.UUID("12345678-1234-5678-1234-567812345678")
         mock_conn.execute.assert_called_once()
@@ -99,7 +99,7 @@ class TestStartIngestRun:
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
 
-        await startingestrun(mock_conn, source_endpoint_id=1, run_metadata={"source": "test"})
+        await start_ingest_run(mock_conn, source_endpoint_id=1, run_metadata={"source": "test"})
 
         call_args = mock_conn.execute.call_args[0][1]
         assert call_args["run_metadata"] == {"source": "test"}
@@ -111,33 +111,33 @@ class TestStartIngestRun:
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
 
-        await startingestrun(mock_conn, source_endpoint_id=1)
+        await start_ingest_run(mock_conn, source_endpoint_id=1)
 
         call_args = mock_conn.execute.call_args[0][1]
         assert call_args["run_metadata"] == {}
 
 
 # ---------------------------------------------------------------------------
-# finishingestrun Tests
+# finish_ingest_run Tests
 # ---------------------------------------------------------------------------
 
 
 class TestFinishIngestRun:
-    """Tests for finishingestrun() function."""
+    """Tests for finish_ingest_run() function."""
 
     @pytest.mark.asyncio
     async def test_updates_ingest_run(self, mock_conn):
         """Updates ingest run with completion timestamp."""
-        await finishingestrun(mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"), status="completed")
+        await finish_ingest_run(mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"), status="succeeded")
 
         sql_arg = mock_conn.execute.call_args[0][0]
         assert "UPDATE meta.ingest_run" in sql_arg
-        assert "completed_at" in sql_arg
+        assert "finished_at" in sql_arg
 
     @pytest.mark.asyncio
     async def test_handles_error_message(self, mock_conn):
         """Error message is stored when provided."""
-        await finishingestrun(
+        await finish_ingest_run(
             mock_conn,
             ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
             status="failed",
@@ -148,9 +148,9 @@ class TestFinishIngestRun:
         assert "error_message" in sql_arg
 
     @pytest.mark.asyncio
-    async def test_status_defaults_to_completed(self, mock_conn):
-        """Status defaults to completed when not provided."""
-        await finishingestrun(mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"))
+    async def test_status_defaults_to_succeeded(self, mock_conn):
+        """Status defaults to succeeded when not provided."""
+        await finish_ingest_run(mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"))
 
         sql_arg = mock_conn.execute.call_args[0][0]
         assert "UPDATE meta.ingest_run" in sql_arg

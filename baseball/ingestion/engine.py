@@ -188,7 +188,7 @@ class IngestEngine:
 
         Args:
             source_endpoint_id: FK to meta.source_endpoint
-            status: Run status (running, completed, failed)
+            status: Run status (running, succeeded, failed, partial, cancelled)
             error_message: Optional error details
 
         Returns:
@@ -197,7 +197,7 @@ class IngestEngine:
         async with self.pool.acquire() as conn:
             sql = """
                 INSERT INTO meta.ingest_run
-                    (source_endpoint_id, status, error_message, started_at)
+                    (source_endpoint_id, run_status, error_message, started_at)
                 VALUES
                     (%(endpoint_id)s, %(status)s, %(error)s, NOW())
                 RETURNING ingest_run_id
@@ -215,22 +215,22 @@ class IngestEngine:
     async def complete_ingest_run(
         self,
         ingest_run_id: str,
-        status: str = "completed",
+        status: str = "succeeded",
         error_message: Optional[str] = None,
     ) -> None:
         """Mark an ingest run as complete.
 
         Args:
             ingest_run_id: UUID of the ingest run
-            status: Final status (completed or failed)
+            status: Final status (succeeded, failed, partial, cancelled)
             error_message: Optional error message for failures
         """
         async with self.pool.acquire() as conn:
             sql = """
                 UPDATE meta.ingest_run
-                SET status = %(status)s,
+                SET run_status = %(status)s,
                     error_message = %(error)s,
-                    completed_at = NOW()
+                    finished_at = NOW()
                 WHERE ingest_run_id = %(run_id)s
             """
             await conn.execute(

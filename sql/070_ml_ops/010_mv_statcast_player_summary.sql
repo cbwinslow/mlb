@@ -18,9 +18,8 @@ BEGIN;
 -- CONCURRENTLY-safe unique indexes are created on each view so that
 -- REFRESH CONCURRENTLY never blocks reads.
 --
--- Depends on: sql/060_core/002_core_gameplay.sql (core.pitch, core.plate_appearance)
---             sql/060_core/001_core_entities.sql  (core.player, core.team, core.game)
---             sql/060_core/004_core_pitch_alter.sql (bat tracking + expected outcome cols)
+-- Depends on: sql/040_raw/003_raw_statcast.sql
+--             sql/060_core/001_core_entities.sql (core.player)
 -- ===========================================================================
 
 
@@ -50,8 +49,6 @@ SELECT
     -- Season / role grain
     cp.game_year                        AS season,
     'batter'                            AS role,
-    bat_team.team_id                    AS team_id,
-    bat_team.team_abbrev                AS team_abbrev,
 
     -- Volume
     COUNT(DISTINCT cp.game_pk)          AS games,
@@ -93,7 +90,7 @@ SELECT
     ROUND(AVG(cp.estimated_slg_using_speedangle)::NUMERIC, 3)  AS avg_xslg,
     ROUND(AVG(cp.estimated_obp_using_speedangle)::NUMERIC, 3)  AS avg_xobp,
 
-    -- Spray (average, not very useful but available)
+    -- Spray
     ROUND(AVG(cp.hc_x)::NUMERIC, 1)    AS avg_spray_x,
     ROUND(AVG(cp.hc_y)::NUMERIC, 1)    AS avg_spray_y,
 
@@ -105,16 +102,14 @@ SELECT
     -- Metadata
     NOW()                               AS refreshed_at
 
-FROM core.pitch cp
+FROM raw_statcast.pitch cp
 JOIN core.player p
     ON p.mlbam_player_id = cp.batter::TEXT
-LEFT JOIN core.team bat_team
-    ON bat_team.team_id = cp.bat_team_id
 WHERE cp.game_year IS NOT NULL
 GROUP BY
     p.player_id, p.full_name, p.mlbam_player_id,
     p.bbref_player_id, p.fangraphs_player_id,
-    cp.game_year, bat_team.team_id, bat_team.team_abbrev
+    cp.game_year
 
 UNION ALL
 
@@ -128,8 +123,6 @@ SELECT
 
     cp.game_year                        AS season,
     'pitcher'                           AS role,
-    pit_team.team_id                    AS team_id,
-    pit_team.team_abbrev                AS team_abbrev,
 
     COUNT(DISTINCT cp.game_pk)          AS games,
     COUNT(DISTINCT cp.at_bat_number
@@ -151,9 +144,9 @@ SELECT
     NULL::NUMERIC                       AS avg_swing_length,
 
     -- Velocity / stuff
-    ROUND(AVG(cp.release_speed)::NUMERIC, 1)      AS avg_exit_velocity,  -- avg velo for pitchers
-    ROUND(AVG(cp.effective_speed)::NUMERIC, 1)    AS avg_launch_angle,   -- effective speed
-    ROUND(AVG(cp.release_spin_rate)::NUMERIC, 0)  AS avg_hit_distance,   -- spin rate
+    ROUND(AVG(cp.release_speed)::NUMERIC, 1)      AS avg_exit_velocity,
+    ROUND(AVG(cp.effective_speed)::NUMERIC, 1)    AS avg_launch_angle,
+    ROUND(AVG(cp.release_spin_rate)::NUMERIC, 0)  AS avg_hit_distance,
     ROUND(
         COUNT(*) FILTER (WHERE cp.launch_speed >= 95)
         ::NUMERIC
@@ -175,27 +168,25 @@ SELECT
 
     NOW()                               AS refreshed_at
 
-FROM core.pitch cp
+FROM raw_statcast.pitch cp
 JOIN core.player p
     ON p.mlbam_player_id = cp.pitcher::TEXT
-LEFT JOIN core.team pit_team
-    ON pit_team.team_id = cp.pit_team_id
 WHERE cp.game_year IS NOT NULL
 GROUP BY
     p.player_id, p.full_name, p.mlbam_player_id,
     p.bbref_player_id, p.fangraphs_player_id,
-    cp.game_year, pit_team.team_id, pit_team.team_abbrev
+    cp.game_year
 WITH NO DATA;
 
 COMMENT ON MATERIALIZED VIEW mart.mv_player_statcast_summary IS
     'One row per (player, season, role=batter|pitcher). Aggregates all Statcast pitch-level '
     'data to player-season grain. Covers bat tracking (2024+), expected outcomes (xba/xwoba/xslg), '
     'hard contact, spray, and run value. Refreshed via REFRESH MATERIALIZED VIEW CONCURRENTLY. '
-    'Depends on core.pitch, core.player, core.team.';
+    'Depends on raw_statcast.pitch, core.player.';
 
 -- CONCURRENTLY-safe unique index (required for REFRESH CONCURRENTLY)
 CREATE UNIQUE INDEX IF NOT EXISTS mart_mv_player_statcast_summary_uidx
-    ON mart.mv_player_statcast_summary (player_id, season, role, team_id);
+    ON mart.mv_player_statcast_summary (player_id, season, role);
 
 
 -- ---------------------------------------------------------------------------
@@ -275,7 +266,7 @@ SELECT
 
     NOW()                                           AS refreshed_at
 
-FROM core.pitch cp
+FROM raw_statcast.pitch cp
 JOIN core.player p
     ON p.mlbam_player_id = cp.pitcher::TEXT
 WHERE cp.game_year IS NOT NULL
@@ -305,14 +296,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS mart_mv_pitch_arsenal_season_uidx
 CREATE MATERIALIZED VIEW IF NOT EXISTS mart.mv_game_score_context AS
 SELECT
     cp.game_pk,
-    g.game_date,
-    g.season                                        AS season,
-    cp.home_team_id,
-    ht.team_abbrev                                  AS home_team_abbrev,
-    cp.away_team_id,
-    at2.team_abbrev                                 AS away_team_abbrev,
-    cp.inning,
-    cp.inning_topbot                                AS half_inning,
+    cp.game_date,
+    cp.game_year                                        AS season,
 
     -- Score state at start of inning half (MIN = earliest pitch in inning)
     MIN(cp.home_score) FILTER (
@@ -341,25 +326,17 @@ SELECT
         COUNT(*) FILTER (WHERE cp.on_3b IS NOT NULL)
         ::NUMERIC / NULLIF(COUNT(*), 0), 4)         AS pct_pitches_runner_on_3b,
 
-    -- Leverage (average, max)
-    ROUND(AVG(cp.if_fielding_alignment)::NUMERIC, 0) AS most_common_if_align,  -- placeholder until leverage added
+    -- Leverage (placeholder until leverage added)
+    ROUND(AVG(cp.if_fielding_alignment)::NUMERIC, 0) AS most_common_if_align,
     ROUND(AVG(cp.delta_run_exp)::NUMERIC, 4)        AS avg_delta_run_exp,
     ROUND(SUM(cp.delta_run_exp)::NUMERIC, 2)        AS total_run_exp_added,
 
     NOW()                                           AS refreshed_at
 
-FROM core.pitch cp
-LEFT JOIN core.game g
-    ON g.game_pk = cp.game_pk
-LEFT JOIN core.team ht
-    ON ht.team_id = cp.home_team_id
-LEFT JOIN core.team at2
-    ON at2.team_id = cp.away_team_id
+FROM raw_statcast.pitch cp
 WHERE cp.inning IS NOT NULL
 GROUP BY
-    cp.game_pk, g.game_date, g.season,
-    cp.home_team_id, ht.team_abbrev,
-    cp.away_team_id, at2.team_abbrev,
+    cp.game_pk, cp.game_date, cp.game_year,
     cp.inning, cp.inning_topbot
 WITH NO DATA;
 
