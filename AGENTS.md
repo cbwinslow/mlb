@@ -154,7 +154,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Updated serving views: `005_serving_views.sql` includes `core.v_unified_plate_appearances`
     - Updated ML ops: Added `011_mart_views.sql` for `mart.v_workspace_model_catalog`
     - Fixed foreign key type mismatches in ML ops tables
-    - Verified bootstrap and test suite pass (197/197 tests)
+    - Verified bootstrap and test suite pass (266 tests)
 
 ### Completed ✅
 - [x] **Step 11:** Add typed tables to `raw_fangraphs` and `raw_bref`
@@ -196,14 +196,15 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Updated `init_nested_settings` validator to rely on nested classes' own env_file config
 
 ### Outstanding 🔲
-- [ ] **Next:** Create Alembic migrations for sql/010-090 directories (DEC-009); see ROADMAP.md Milestone 2
 - [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
 - [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
+
+### Completed ✅
 - [x] **Issue #36:** Fix type mismatches in ingestion functions (INTEGER vs UUID)
     - Added `util.resolve_player_id()` and `util.resolve_team_id()` functions
     - Updated `util.ingest_chadwick_play()` and `util.ingest_play_event()` to resolve MLBAM IDs
     - Fixed async/await patterns in orchestrator.py
-    - All 197 tests pass
+    - All 266 tests pass
 
 ### Documentation Audit ✅ Completed
 - [x] Updated `AGENTS.md` file maps (removed `002_game_bridge.sql`, `004_core_pitch_alter.sql` references)
