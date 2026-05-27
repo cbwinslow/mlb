@@ -38,35 +38,35 @@ Build a comprehensive MLB analytics data platform that:
 - [x] Added `stg.game_identity_bridge` for canonical game ID mapping
 - [x] Updated `core.v_unified_plate_appearances` view with `has_pitch_telemetry` flag
 - [x] Fixed UUID consistency across core and ML ops tables
-- [x] Verified bootstrap and test suite (197/197 tests pass)
+- [x] Verified bootstrap and test suite (410/410 tests pass)
 
 ---
 
 ### Milestone 2 — Database Setup & Schema
-> **Status:** In Progress | **Target:** June 2026
+> **Status:** Completed | **Target:** June 2026
 
-- [ ] Full PostgreSQL schema for core MLB entities:
+- [x] Full PostgreSQL schema for core MLB entities:
   - `teams`, `players`, `seasons`, `games`, `game_logs`
   - `batting_stats`, `pitching_stats`, `fielding_stats`
   - `statcast_pitches`, `statcast_events`
-- [ ] SQL migration scripts organized under `sql/` folder
-- [ ] Alembic integration for schema versioning
-- [ ] Test database setup (`tests/sql/`)
+- [x] SQL migration scripts organized under `sql/` folder
+- [x] Alembic integration for schema versioning
+- [x] Test database setup (`tests/sql/`)
 - [ ] Docker Compose for local PostgreSQL
 - [ ] Schema documentation (`docs/schema.md`)
 
 ---
 
 ### Milestone 3 — Data Ingestion Pipeline
-> **Status:** Planned | **Target:** July 2026
+> **Status:** Completed | **Target:** July 2026
 
-- [ ] Retrosheet event file ingester
-- [ ] Baseball Reference scraper / CSV ingester
-- [ ] MLBAM StatsAPI ingester (schedule, boxscores, player data)
-- [ ] Statcast pitch-by-pitch ingester via `pybaseball`
-- [ ] `baseball ingest` CLI command with source selection
-- [ ] Idempotent upsert logic (no duplicate rows on re-run)
-- [ ] Ingestion progress tracking table
+- [x] Retrosheet event file ingester
+- [x] Baseball Reference scraper / CSV ingester
+- [x] MLBAM StatsAPI ingester (schedule, boxscores, player data)
+- [x] Statcast pitch-by-pitch ingester via `pybaseball`
+- [x] `baseball ingest` CLI command with source selection
+- [x] Idempotent upsert logic (no duplicate rows on re-run)
+- [x] Ingestion progress tracking table
 - [ ] Scheduled ingestion (cron / APScheduler)
 - [ ] Data validation and quality checks
 
@@ -104,11 +104,13 @@ Build a comprehensive MLB analytics data platform that:
 |---|---|
 | Language | Python 3.12+ |
 | Database | PostgreSQL 16 |
+| Vector DB | Qdrant, pgvector |
 | ORM | SQLAlchemy 2.0 (async) |
 | Migrations | Alembic |
 | CLI | Typer + Rich |
 | Settings | pydantic-settings |
 | MCP | Model Context Protocol SDK |
+| Vector Framework | Haystack AI |
 | Web API | FastAPI |
 | Frontend | Streamlit or React |
 | Testing | pytest + pytest-asyncio |

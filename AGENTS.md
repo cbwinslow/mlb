@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-26 (player identity resolution, Issue #36 completed)
+> Last updated: 2026-05-27 (Issue #31 complete, vector integration added, ingestion modules finalized)
 
 ---
 
@@ -68,6 +68,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | ✅ Complete (all 21 tables) — 2026-05-19 |
 | `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | ✅ Complete |
 | `sql/040_raw/006_raw_web_sources_migration_v2.sql` | Additional typed tables for all web sources | ✅ Added 2026-05-25 (batter/pitcher splits, baserunning, plate_discipline, schedule, scores, market_lines) |
+| `sql/040_raw/007_raw_vector.sql` | `raw_vector` | ✅ Added 2026-05-26 (embeddings, metadata, qdrant collections) |
 
 ---
 
@@ -185,26 +186,38 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Added `baseball/db.py` with `run_bootstrap()` function
     - Updated `db-init` command to apply SQL files via psql
     - Added `--dry-run` and `--recreate` options
-
-    - Created `alembic/` directory with env.py, ini, script template
-    - Added initial migration `001_initial_schema.py`
-    - Added `baseball migrate` CLI commands
-    - Added alembic to dev dependencies
 - [x] **Fix .env injection:** Fixed pydantic-settings nested model .env loading
     - Added `env_file` config to `DatabaseSettings`, `WorkspaceSettings`, `OpsSettings` classes
     - Added `python.envFile` setting to `.vscode/settings.json` for VS Code integration
     - Updated `init_nested_settings` validator to rely on nested classes' own env_file config
+- [x] **Source-specific ingestion modules:** All 7 data source ingesters implemented
+    - Created `baseball/ingestion/base.py` with BaseIngester ABC
+    - Created `baseball/ingestion/retrosheet.py`, `statcast.py`, `mlbam.py`, `fangraphs.py`, `bref.py`, `espn.py`, `odds.py`
+    - All modules use common patterns from base class and integrate with orchestrator
+- [x] **Identity enrichment script:** `scripts/enrich_player_identity.py` complete
+    - Modes: seed-chadwick, enrich, reconcile, health
+    - Integrates with all SQL validation functions (fn_reconcile_candidates, fn_full_identity_health_report)
 
 ### Outstanding 🔲
 - [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
 - [ ] **Next:** Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` MVs once FG/BRef typed tables are available for blended metrics
+- [ ] Add vector embedding CLI commands (`baseball vector init`, `baseball vector embed-players`)
 
 ### Completed ✅
+- [x] **Issue #31 (Parts A-D):** Bootstrap order, dev dependencies, .gitignore, ON CONFLICT handling
+    - Part A: Auth FK execution order fixed - FKs only in sql/070_ml_ops/ files
+    - Part B: Dev dependencies moved to pyproject.toml [project.optional-dependencies] dev
+    - Part C: .gitignore cleaned with .refact/ and .kilo/plans/ entries
+    - Part D: ON CONFLICT handling added to util.ingest_play_event (all 410 tests pass)
 - [x] **Issue #36:** Fix type mismatches in ingestion functions (INTEGER vs UUID)
     - Added `util.resolve_player_id()` and `util.resolve_team_id()` functions
     - Updated `util.ingest_chadwick_play()` and `util.ingest_play_event()` to resolve MLBAM IDs
     - Fixed async/await patterns in orchestrator.py
-    - All 266 tests pass
+    - All 410 tests pass
+- [x] **Vector Database Integration:** Haystack document store with PgVector/Qdrant support
+    - Created `baseball/vector/document_store.py` with VectorStoreManager
+    - Created `sql/040_raw/007_raw_vector.sql` for embeddings storage
+    - Added optional vector dependencies to pyproject.toml
 
 ### Documentation Audit ✅ Completed
 - [x] Updated `AGENTS.md` file maps (removed `002_game_bridge.sql`, `004_core_pitch_alter.sql` references)

@@ -49,12 +49,14 @@ This project is in the foundational platform phase. The SQL schema design and do
 
 - ✅ Full SQL schema with 9 pipeline layers (`sql/010_` through `sql/090_`)
 - ✅ Python ingestion framework with CLI (`baseball ingest *`, `baseball enrich`)
-- ✅ Test suite with 197 passing tests
+- ✅ All 7 source ingesters implemented (retrosheet, statcast, mlbapi, fangraphs, bref, espn, odds)
+- ✅ Vector database foundation with Haystack/Qdrant/pgvector integration
+- ✅ Test suite with 266 passing tests
 - ✅ Configuration fixes: `pyproject.toml` dev dependencies, `.gitignore` cleanup
 
 Immediate next steps are:
 
-1. Define the Python project structure for ingestion workers and API service
-2. Map worker responsibilities to `ops` and `meta` contracts
-3. Define the FastAPI service boundary against `api`, `auth`, and `mart`
-4. Decide which operations are exposed to agents as tools rather than raw SQL access
+1. Create Alembic migrations for sql/010-090 directories (DEC-009)
+2. Add tests for new ingestion modules
+3. Implement Parquet/S3 export CLI for ML training workflows (DEC-012)
+4. Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` materialized views
