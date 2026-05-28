@@ -47,12 +47,13 @@ Issue templates live under `.github/ISSUE_TEMPLATE/` and cover common flows:
 - Data source/ingestion tasks.
 - Modeling tasks.
 
-See the individual template files for details.
+See the individual template files for details. For optimal issue creation with technical context, follow the process in `docs/issue-creation-process.md`.
 
 ## Pull request workflow
 
 - Open PRs against `main`.
 - Link PRs to issues using `Fixes #123` or `Closes #123` where appropriate.
+- Follow the standardized process in `docs/issue-creation-process.md` for creating well-formed issues with full technical context.
 - Ensure CI is green before requesting review.
 - Keep PR descriptions focused on *why* and *how*, not just *what*.
 

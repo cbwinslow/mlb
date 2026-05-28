@@ -166,6 +166,11 @@ mcp/oddshub/
 mcp/statcast-mcp/
 mcp/yahoo-fantasy-baseball-mcp/
 
+# AI tooling
+.refact/
+.gemini/
+plans/
+
 # AI planning artifacts
 .kilo/plans/
 .testagent/

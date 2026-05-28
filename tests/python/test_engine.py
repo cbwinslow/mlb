@@ -105,7 +105,7 @@ class TestBulkLoadRawCsv:
         # In psycopg async, conn.cursor() returns a cursor object directly (not a context manager)
         # The cursor has async methods like copy_expert
         mock_conn.cursor = MagicMock(return_value=mock_cursor)
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [100]))
         mock_conn.commit = AsyncMock()
 
@@ -135,7 +135,7 @@ class TestBulkLoadRawCsv:
         mock_conn = AsyncMock()
         mock_cursor = AsyncMock()
         mock_conn.cursor = MagicMock(return_value=mock_cursor)
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [50]))
         mock_conn.commit = AsyncMock()
 
@@ -168,7 +168,7 @@ class TestIngestRawJsonb:
     async def test_inserts_json_with_ingest_run_id(self, ingest_engine, mock_pool):
         """JSON is inserted with ingest_run_id."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [1]))
         mock_conn.commit = AsyncMock()
 
@@ -189,7 +189,7 @@ class TestIngestRawJsonb:
     async def test_handles_extra_columns(self, ingest_engine, mock_pool):
         """Extra columns are included in insert."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [1]))
         mock_conn.commit = AsyncMock()
 
@@ -215,7 +215,7 @@ class TestUpsertPlayerIdentity:
     async def test_inserts_new_player(self, ingest_engine, mock_pool):
         """New player identity is inserted."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [42]))
         mock_conn.commit = AsyncMock()
 
@@ -234,7 +234,7 @@ class TestUpsertPlayerIdentity:
     async def test_handles_null_mlbam(self, ingest_engine, mock_pool):
         """NULL MLBAM ID is handled correctly."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [1]))
         mock_conn.commit = AsyncMock()
 
@@ -258,7 +258,7 @@ class TestRecordIngestRun:
     async def test_creates_ingest_run(self, ingest_engine, mock_pool):
         """Ingest run record is created."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: ["run-uuid-123"]))
         mock_conn.commit = AsyncMock()
 
@@ -275,7 +275,7 @@ class TestRecordIngestRun:
     async def test_handles_error_message(self, ingest_engine, mock_pool):
         """Error message is stored when provided."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: ["run-uuid"]))
         mock_conn.commit = AsyncMock()
 
@@ -301,7 +301,7 @@ class TestCompleteIngestRun:
     async def test_marks_completed(self, ingest_engine, mock_pool):
         """Ingest run is marked completed."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock()
         mock_conn.commit = AsyncMock()
 
@@ -318,7 +318,7 @@ class TestCompleteIngestRun:
     async def test_marks_failed_with_error(self, ingest_engine, mock_pool):
         """Ingest run is marked failed with error message."""
         mock_conn = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock()
         mock_conn.commit = AsyncMock()
 

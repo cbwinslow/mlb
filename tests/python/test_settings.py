@@ -139,8 +139,10 @@ class TestDatabaseSettings:
             "model_config",
             SettingsConfigDict(env_prefix="", env_file=None, extra="ignore"),
         ):
-            db = DatabaseSettings.model_validate({"DATABASE_URL": _VALID_DB_URL})
-            assert db.schema_search_path is None
+            # Also clear the env var since pydantic-settings reads from env even with env_file=None
+            with patch.dict(os.environ, {}, clear=True):
+                db = DatabaseSettings.model_validate({"DATABASE_URL": _VALID_DB_URL})
+                assert db.schema_search_path is None
 
     def test_schema_search_path_can_be_set(self):
         db = _db(search_path="meta,ref,raw_retrosheet,stg,core")

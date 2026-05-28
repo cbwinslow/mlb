@@ -41,7 +41,7 @@ class RetrosheetIngester(BaseIngester):
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_retrosheet' AND tablename = 'record')"
             )
@@ -105,7 +105,7 @@ class RetrosheetIngester(BaseIngester):
         result.rows_processed = len(records)
 
         # Bulk insert via COPY
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             # Insert into raw_retrosheet.record
             # Then process through util.ingest_chadwick_play()
             pass

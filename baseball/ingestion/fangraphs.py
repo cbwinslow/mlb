@@ -37,7 +37,7 @@ class FanGraphsIngester(BaseIngester):
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_fangraphs' AND tablename = 'batter_splits')"
             )

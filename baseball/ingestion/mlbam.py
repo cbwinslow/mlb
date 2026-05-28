@@ -6,6 +6,7 @@ into raw_mlbapi schema.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date, datetime
@@ -45,7 +46,7 @@ class MLBAMIngester(BaseIngester):
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_mlbapi' AND tablename = 'payload')"
             )
@@ -110,19 +111,36 @@ class MLBAMIngester(BaseIngester):
         data = await HistoricalLoaderFactory.fetch_api_json_stream(url, params=params)
         result.rows_processed = len(data.get("dates", []))
 
-        # Store in raw_mlbapi.payload
-        async with self.pool.acquire() as conn:
+        # Store in raw_mlbapi.request and payload
+        async with self.pool.connection() as conn:
+            # First insert into request table
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_mlbapi.request (
+                    mlbapi_request_id, ingest_run_id, source_endpoint_id,
+                    request_url, request_method, request_params, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'mlbapi'),
+                    %s, 'GET', %s, NOW()
+                )
+                RETURNING mlbapi_request_id
+                """,
+                (ingest_run_id, url, json.dumps(params)),
+            )
+            request_id = (await request_result.fetchone())[0]
+
+            # Then insert into payload with the request_id
             await conn.execute(
                 """
                 INSERT INTO raw_mlbapi.payload (
                     mlbapi_request_id, endpoint_code, endpoint_group,
                     response_json, created_at
                 ) VALUES (
-                    gen_random_uuid(), 'schedule', 'schedule',
-                    %(json_data)s, NOW()
+                    %s, 'schedule', 'schedule',
+                    %s, NOW()
                 )
                 """,
-                {"json_data": data},
+                (request_id, json.dumps(data)),
             )
             await conn.commit()
 
@@ -137,7 +155,23 @@ class MLBAMIngester(BaseIngester):
         data = await HistoricalLoaderFactory.fetch_api_json_stream(url)
         result.rows_processed = len(data.get("teams", []))
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
+            # First insert into request table
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_mlbapi.request (
+                    mlbapi_request_id, ingest_run_id, source_endpoint_id,
+                    request_url, request_method, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'mlbapi'),
+                    %s, 'GET', NOW()
+                )
+                RETURNING mlbapi_request_id
+                """,
+                (ingest_run_id, url),
+            )
+            request_id = (await request_result.fetchone())[0]
+
             for team in data.get("teams", []):
                 await conn.execute(
                     """
@@ -145,11 +179,11 @@ class MLBAMIngester(BaseIngester):
                         mlbapi_request_id, endpoint_code, endpoint_group,
                         team_id, response_json, created_at
                     ) VALUES (
-                        gen_random_uuid(), 'teams', 'teams',
-                        %(team_id)s, %(json_data)s, NOW()
+                        %s, 'teams', 'teams',
+                        %s, %s, NOW()
                     )
                     """,
-                    {"team_id": team.get("id"), "json_data": team},
+                    (request_id, team.get("id"), json.dumps(team)),
                 )
             await conn.commit()
 
@@ -164,7 +198,23 @@ class MLBAMIngester(BaseIngester):
         data = await HistoricalLoaderFactory.fetch_paginated_json(url)
         result.rows_processed = len(data)
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
+            # First insert into request table
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_mlbapi.request (
+                    mlbapi_request_id, ingest_run_id, source_endpoint_id,
+                    request_url, request_method, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'mlbapi'),
+                    %s, 'GET', NOW()
+                )
+                RETURNING mlbapi_request_id
+                """,
+                (ingest_run_id, url),
+            )
+            request_id = (await request_result.fetchone())[0]
+
             for person in data:
                 await conn.execute(
                     """
@@ -172,11 +222,11 @@ class MLBAMIngester(BaseIngester):
                         mlbapi_request_id, endpoint_code, endpoint_group,
                         person_id, response_json, created_at
                     ) VALUES (
-                        gen_random_uuid(), 'people', 'people',
-                        %(person_id)s, %(json_data)s, NOW()
+                        %s, 'people', 'people',
+                        %s, %s, NOW()
                     )
                     """,
-                    {"person_id": person.get("id"), "json_data": person},
+                    (request_id, person.get("id"), json.dumps(person)),
                 )
             await conn.commit()
 

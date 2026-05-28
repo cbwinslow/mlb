@@ -95,7 +95,7 @@ class TestOddsIngesterValidate:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[True])
@@ -112,7 +112,7 @@ class TestOddsIngesterValidate:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[False])
@@ -138,7 +138,7 @@ class TestOddsIngesterIngest:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[1])
@@ -159,7 +159,7 @@ class TestOddsIngesterIngest:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[1])
@@ -179,7 +179,7 @@ class TestOddsIngesterIngest:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[1])
@@ -199,7 +199,7 @@ class TestOddsIngesterIngest:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[1])
@@ -227,7 +227,7 @@ class TestIngestDate:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
 
         ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id, api_key="test-key")
 

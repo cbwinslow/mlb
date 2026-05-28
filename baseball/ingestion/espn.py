@@ -5,6 +5,7 @@ Ingests ESPN data (schedule, scores, standings) into raw_espn schema.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date
@@ -39,7 +40,7 @@ class ESPNIngester(BaseIngester):
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_espn' AND tablename = 'schedule')"
             )
@@ -102,21 +103,17 @@ class ESPNIngester(BaseIngester):
         teams = data.get("teams", [])
         result.rows_processed = len(teams)
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             for team in teams:
                 await conn.execute(
                     """
                     INSERT INTO raw_espn.schedule (
                         espn_team_id, season, schedule_json, created_at
                     ) VALUES (
-                        %(team_id)s, %(season)s, %(schedule_json)s, NOW()
+                        %s, %s, %s, NOW()
                     )
                     """,
-                    {
-                        "team_id": team.get("id"),
-                        "season": season,
-                        "schedule_json": team.get("schedule", {}),
-                    },
+                    (team.get("id"), season, json.dumps(team.get("schedule", {}))),
                 )
             await conn.commit()
 
@@ -134,21 +131,17 @@ class ESPNIngester(BaseIngester):
         events = data.get("events", [])
         result.rows_processed = len(events)
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             for event in events:
                 await conn.execute(
                     """
                     INSERT INTO raw_espn.scores (
                         espn_event_id, game_date, score_json, created_at
                     ) VALUES (
-                        %(event_id)s, %(game_date)s, %(score_json)s, NOW()
+                        %s, %s, %s, NOW()
                     )
                     """,
-                    {
-                        "event_id": event.get("id"),
-                        "game_date": game_date,
-                        "score_json": event,
-                    },
+                    (event.get("id"), game_date, json.dumps(event)),
                 )
             await conn.commit()
 
@@ -165,19 +158,16 @@ class ESPNIngester(BaseIngester):
         # Standings are typically one record per season
         result.rows_processed = 1
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             await conn.execute(
                 """
                 INSERT INTO raw_espn.standings (
                     season, standings_json, created_at
                 ) VALUES (
-                    %(season)s, %(standings_json)s, NOW()
+                    %s, %s, NOW()
                 )
                 """,
-                {
-                    "season": season,
-                    "standings_json": data,
-                },
+                (season, json.dumps(data)),
             )
             await conn.commit()
 

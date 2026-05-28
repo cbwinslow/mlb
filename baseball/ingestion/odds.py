@@ -5,6 +5,7 @@ Ingests betting odds data into raw_odds schema.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date
@@ -39,7 +40,7 @@ class OddsIngester(BaseIngester):
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_odds' AND tablename = 'market_lines')"
             )
@@ -108,7 +109,7 @@ class OddsIngester(BaseIngester):
         data = await HistoricalLoaderFactory.fetch_api_json_stream(url, params=params)
         result.rows_processed = len(data)
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             for market in data:
                 await conn.execute(
                     """
@@ -116,15 +117,11 @@ class OddsIngester(BaseIngester):
                         odds_request_id, sport_key, game_date,
                         market_json, created_at
                     ) VALUES (
-                        gen_random_uuid(), %(sport)s, %(game_date)s,
-                        %(market_json)s, NOW()
+                        gen_random_uuid(), %s, %s,
+                        %s, NOW()
                     )
                     """,
-                    {
-                        "sport": sport,
-                        "game_date": game_date,
-                        "market_json": market,
-                    },
+                    (sport, game_date, json.dumps(market)),
                 )
             await conn.commit()
 

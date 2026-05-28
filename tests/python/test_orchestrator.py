@@ -22,7 +22,7 @@ from baseball.ingestion.orchestrator import IngestionOrchestrator, start_ingest_
 def mock_pool():
     """Create a mock AsyncConnectionPool."""
     pool = MagicMock()
-    pool.acquire = MagicMock()
+    pool.connection = MagicMock()
     return pool
 
 
@@ -101,8 +101,9 @@ class TestStartIngestRun:
 
         await start_ingest_run(mock_conn, source_endpoint_id=1, run_metadata={"source": "test"})
 
+        # Check positional args - the 4th arg is the JSON metadata
         call_args = mock_conn.execute.call_args[0][1]
-        assert call_args["run_metadata"] == {"source": "test"}
+        assert call_args[3] == '{"source": "test"}'
 
     @pytest.mark.asyncio
     async def test_run_metadata_defaults_to_empty_dict(self, mock_conn):
@@ -113,8 +114,9 @@ class TestStartIngestRun:
 
         await start_ingest_run(mock_conn, source_endpoint_id=1)
 
+        # Check positional args - the 4th arg is the JSON metadata
         call_args = mock_conn.execute.call_args[0][1]
-        assert call_args["run_metadata"] == {}
+        assert call_args[3] == '{}'
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +173,7 @@ class TestAsyncEnter:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
@@ -188,7 +190,7 @@ class TestAsyncEnter:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
@@ -214,7 +216,7 @@ class TestAsyncExit:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
@@ -233,7 +235,7 @@ class TestAsyncExit:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
@@ -261,7 +263,7 @@ class TestOrchestratorIntegration:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
@@ -278,7 +280,7 @@ class TestOrchestratorIntegration:
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.acquire.return_value = mock_acquire_ctx
+        mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
         mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
         mock_conn.execute.return_value = mock_result
