@@ -104,12 +104,12 @@ BEGIN
             -- AUTO-PROMOTE: call the safe update procedure
             CALL stg.update_player_identity(
                 p_player_identity_id := v_pid,
-                p_retro_id           := r.retrosheet_player_id,
-                p_bbref_id           := r.bbref_player_id,
-                p_fangraphs_id       := r.fangraphs_player_id,
-                p_lahman_id          := r.lahman_player_id,
-                p_confidence         := r.candidate_score,
-                p_source             := 'candidate:auto_promote:' || r.source_system_code
+                p_retrosheet_id     := r.retrosheet_player_id,
+                p_bbref_id          := r.bbref_player_id,
+                p_fangraphs_id      := r.fangraphs_player_id,
+                p_lahman_id         := r.lahman_player_id,
+                p_confidence        := r.candidate_score,
+                p_change_source     := 'candidate:auto_promote:' || r.source_system_code
             );
 
             v_action := 'AUTO_PROMOTED';

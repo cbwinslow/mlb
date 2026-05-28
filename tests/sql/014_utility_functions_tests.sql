@@ -21,7 +21,7 @@
 --                                      source_is_enabled_for_serving, workspace_can_use_source,
 --                                      workspace_can_view_source, workspace_can_trigger_ingest)
 --   - 009_mart_refresh_functions.sql (refresh_materialized_view, refresh_workspace_marts)
---   - 010_ingestion_ops_functions.sql (calculate_retry_run_at, claim_next_job, complete_job, fail_job_for_retry)
+--   - 010_ingestion_ops_functions.sql (calculate_retry_run_at, claim_next_job, complete_job, fail_job_for_retry, recover_stale_claimed_jobs, live_poll_should_stop)
 --   - 011_api_service_functions.sql (api_touch_updated_at, register_request_idempotency, log_api_request,
 --                                    rollup_api_usage_hourly)
 --   - 012_source_ingestion_functions.sql (build_file_manifest_path, next_statcast_chunk_start,
@@ -372,6 +372,30 @@ BEGIN
     v_run_at := util.calculate_retry_run_at(2, 60, 2.0, 0);
     IF v_run_at <= NOW() + INTERVAL '120 seconds' THEN
         RAISE EXCEPTION 'calculate_retry_run_at exponential backoff failed';
+    END IF;
+END $$;
+
+-- Test: recover_stale_claimed_jobs function exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'util' AND p.proname = 'recover_stale_claimed_jobs'
+    ) THEN
+        RAISE EXCEPTION 'Function util.recover_stale_claimed_jobs does not exist';
+    END IF;
+END $$;
+
+-- Test: live_poll_should_stop function exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'util' AND p.proname = 'live_poll_should_stop'
+    ) THEN
+        RAISE EXCEPTION 'Function util.live_poll_should_stop does not exist';
     END IF;
 END $$;
 
@@ -1172,6 +1196,71 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
+-- Functional tests for 013_identity_validation_functions.sql
+-- ---------------------------------------------------------------------------
+
+-- Test: fn_validate_identity_completeness returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    SELECT * INTO v_row FROM stg.fn_validate_identity_completeness(0.0, 10);
+    IF v_row.player_identity_id IS NULL THEN
+        -- Empty result is OK if no players exist yet
+        RAISE NOTICE 'fn_validate_identity_completeness returned no rows (expected if no data)';
+    END IF;
+END $$;
+
+-- Test: fn_detect_orphaned_pitches returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    SELECT * INTO v_row FROM stg.fn_detect_orphaned_pitches(NULL, NULL, 10);
+    IF v_row.pitch_id IS NULL THEN
+        -- Empty result is OK if no orphaned pitches exist
+        RAISE NOTICE 'fn_detect_orphaned_pitches returned no rows (expected if no orphans)';
+    END IF;
+END $$;
+
+-- Test: fn_cross_validate_identities returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    -- This function requires stg.chadwick_register_snapshot to be populated
+    -- Test will return empty if snapshot is empty, which is valid
+    SELECT * INTO v_row FROM stg.fn_cross_validate_identities(NULL) LIMIT 1;
+    IF v_row.player_identity_id IS NULL THEN
+        RAISE NOTICE 'fn_cross_validate_identities returned no rows (expected if no snapshot data)';
+    END IF;
+END $$;
+
+-- Test: fn_pinpoint_player_by_context returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    -- Test with a date that likely has no data - should return empty
+    SELECT * INTO v_row FROM stg.fn_pinpoint_player_by_context('2025-04-01', 'NYY', NULL, NULL, NULL) LIMIT 1;
+    IF v_row.pitch_id IS NULL THEN
+        RAISE NOTICE 'fn_pinpoint_player_by_context returned no rows (expected if no game data)';
+    END IF;
+END $$;
+
+-- Test: fn_validate_game_lineup returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    -- Test with a date that likely has no data - should return empty
+    SELECT * INTO v_row FROM stg.fn_validate_game_lineup('2025-04-01', 'NYY') LIMIT 1;
+    IF v_row.batting_order_pos IS NULL THEN
+        RAISE NOTICE 'fn_validate_game_lineup returned no rows (expected if no lineup data)';
+    END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
 -- Tests for 014_identity_reconciliation_functions.sql
 -- ---------------------------------------------------------------------------
 
@@ -1248,6 +1337,92 @@ BEGIN
         WHERE n.nspname = 'stg' AND p.proname = 'update_player_identity'
     ) THEN
         RAISE EXCEPTION 'Procedure stg.update_player_identity does not exist';
+    END IF;
+END $$;
+
+-- Test: v_identity_validation_dashboard view exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_view
+        WHERE viewname = 'v_identity_validation_dashboard'
+    ) THEN
+        RAISE EXCEPTION 'View stg.v_identity_validation_dashboard does not exist';
+    END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- Functional tests for 014_identity_reconciliation_functions.sql
+-- ---------------------------------------------------------------------------
+
+-- Test: fn_reconcile_candidates returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    -- Test with empty candidate table - should return no rows
+    SELECT * INTO v_row FROM stg.fn_reconcile_candidates(0.85, 10) LIMIT 1;
+    IF v_row.candidate_id IS NULL THEN
+        RAISE NOTICE 'fn_reconcile_candidates returned no rows (expected if no candidates)';
+    END IF;
+END $$;
+
+-- Test: fn_contextual_fingerprint_check returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    -- Test with a date that likely has no data - should return empty
+    SELECT * INTO v_row FROM stg.fn_contextual_fingerprint_check('2025-04-01', 12345) LIMIT 1;
+    IF v_row.mlbam_player_id IS NULL THEN
+        RAISE NOTICE 'fn_contextual_fingerprint_check returned no rows (expected if no game data)';
+    END IF;
+END $$;
+
+-- Test: fn_full_identity_health_report returns valid JSONB
+DO $$
+DECLARE
+    v_report JSONB;
+BEGIN
+    v_report := stg.fn_full_identity_health_report();
+    IF jsonb_typeof(v_report) != 'object' THEN
+        RAISE EXCEPTION 'fn_full_identity_health_report should return JSONB object, got %', jsonb_typeof(v_report);
+    END IF;
+    -- Verify expected keys exist
+    IF NOT (v_report ? 'report_generated_at') THEN
+        RAISE EXCEPTION 'fn_full_identity_health_report missing report_generated_at key';
+    END IF;
+    IF NOT (v_report ? 'orphaned_pitches_48h') THEN
+        RAISE EXCEPTION 'fn_full_identity_health_report missing orphaned_pitches_48h key';
+    END IF;
+    IF NOT (v_report ? 'critical_alert') THEN
+        RAISE EXCEPTION 'fn_full_identity_health_report missing critical_alert key';
+    END IF;
+END $$;
+
+-- Test: v_candidates_pending_human_review returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    -- Test with empty candidate table - should return no rows
+    SELECT * INTO v_row FROM stg.v_candidates_pending_human_review LIMIT 1;
+    IF v_row.player_identity_candidate_id IS NULL THEN
+        RAISE NOTICE 'v_candidates_pending_human_review returned no rows (expected if no candidates)';
+    END IF;
+END $$;
+
+-- Test: v_identity_validation_dashboard returns expected columns
+DO $$
+DECLARE
+    v_row RECORD;
+BEGIN
+    SELECT * INTO v_row FROM stg.v_identity_validation_dashboard;
+    IF v_row.total_players IS NULL THEN
+        RAISE EXCEPTION 'v_identity_validation_dashboard should return total_players';
+    END IF;
+    IF v_row.pct_high_confidence IS NULL THEN
+        RAISE EXCEPTION 'v_identity_validation_dashboard should return pct_high_confidence';
     END IF;
 END $$;
 
