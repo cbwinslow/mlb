@@ -139,16 +139,20 @@ def ingest_lahman(
 
     Generates historical player registry from Lahman CSV files.
     """
+    import asyncio
     from psycopg_pool import AsyncConnectionPool
-    from baseball.ingestion.mlbam import MLBAMIngester
+    from baseball.ingestion.lahman import LahmanIngester
 
-    pool = AsyncConnectionPool(database_url)
-    try:
-        ingester = MLBAMIngester(pool, workspace_id=None)
-        result = ingester.ingest(season=2023)
-        console.print(f"[green]Lahman ingest complete: {result.rows_inserted} rows[/green]")
-    finally:
-        pool.close()
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
+    async def _run():
+        async with AsyncConnectionPool(pg_url) as pool:
+            ingester = LahmanIngester(pool, workspace_id=None)
+            result = await ingester.ingest(season=2023)
+            console.print(f"[green]Lahman ingest complete: {result.rows_inserted} rows[/green]")
+
+    asyncio.run(_run())
 
 
 @ingest_app.command("retrosheet")
@@ -168,14 +172,14 @@ def ingest_retrosheet(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.retrosheet import RetrosheetIngester
 
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
+        async with AsyncConnectionPool(pg_url) as pool:
             ingester = RetrosheetIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season)
             console.print(f"[green]Retrosheet ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
@@ -195,16 +199,16 @@ def ingest_mlbapi(
     """
     import asyncio
     from psycopg_pool import AsyncConnectionPool
-    from baseball.ingestion.mlbam import MLBAMIngester
+    from baseball.ingestion.lahman import LahmanIngester
+
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
-            ingester = MLBAMIngester(pool, workspace_id=None)
+        async with AsyncConnectionPool(pg_url) as pool:
+            ingester = LahmanIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season)
             console.print(f"[green]MLB API ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
@@ -230,9 +234,11 @@ def ingest_statcast(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.statcast import StatcastIngester
 
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
+        async with AsyncConnectionPool(pg_url) as pool:
             ingester = StatcastIngester(pool, workspace_id=None)
             if start_date and end_date:
                 result = await ingester.ingest(
@@ -242,8 +248,6 @@ def ingest_statcast(
             else:
                 result = await ingester.ingest(season=2023)
             console.print(f"[green]Statcast ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
@@ -268,14 +272,14 @@ def ingest_fangraphs(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.fangraphs import FanGraphsIngester
 
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
+        async with AsyncConnectionPool(pg_url) as pool:
             ingester = FanGraphsIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season, data_type=data_type)
             console.print(f"[green]FanGraphs ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
@@ -300,14 +304,14 @@ def ingest_bref(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.bref import BRefIngester
 
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
+        async with AsyncConnectionPool(pg_url) as pool:
             ingester = BRefIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season, data_type=data_type)
             console.print(f"[green]BRef ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
@@ -332,14 +336,14 @@ def ingest_espn(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.espn import ESPNIngester
 
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
+        async with AsyncConnectionPool(pg_url) as pool:
             ingester = ESPNIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season, data_type=data_type)
             console.print(f"[green]ESPN ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
@@ -365,17 +369,17 @@ def ingest_odds(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.odds import OddsIngester
 
+    # Convert SQLAlchemy URL to psycopg format
+    pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
     async def _run():
-        pool = AsyncConnectionPool(database_url)
-        try:
+        async with AsyncConnectionPool(pg_url) as pool:
             ingester = OddsIngester(pool, workspace_id=None)
             result = await ingester.ingest(
                 date_val=date.fromisoformat(date_val) if date_val else None,
                 sport=sport,
             )
             console.print(f"[green]Odds ingest complete: {result.rows_inserted} rows[/green]")
-        finally:
-            pool.close()
 
     asyncio.run(_run())
 
