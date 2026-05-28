@@ -39,7 +39,7 @@ class StatcastIngester(BaseIngester):
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_statcast' AND tablename = 'pitch')"
             )
@@ -139,14 +139,14 @@ class StatcastIngester(BaseIngester):
 
         Calls util.ingest_statcast_play() for each row.
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             # Get all raw statcast rows that haven't been processed
             result = await conn.execute(
                 """
                 SELECT * FROM raw_statcast.pitch
                 WHERE ingest_run_id = %s
                 """,
-                {"ingest_run_id": ingest_run_id},
+                (ingest_run_id,),
             )
             rows = await result.fetchall()
 
