@@ -200,6 +200,9 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Modes: seed-chadwick, enrich, reconcile, health
     - Integrates with all SQL validation functions (fn_reconcile_candidates, fn_full_identity_health_report)
 
+- [x] **Pool API Migration:** Migrated all ingestion modules from pool.acquire() to pool.connection() API for psycopg compatibility. All 441 tests pass.
+- [x] **LahmanIngester:** Created dedicated LahmanIngester class and fixed baseball ingest lahman CLI command.
+
 ### Outstanding 🔲
 - [ ] **Next:** None - all tasks complete. Ready for staging layer enhancements or ML feature development.
 
