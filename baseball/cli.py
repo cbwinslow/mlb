@@ -437,3 +437,257 @@ def migrate_history() -> None:
 
 
 app.add_typer(migrate_app, name="migrate")
+
+
+# ---------------------------------------------------------------------------
+# Vector embedding commands
+# ---------------------------------------------------------------------------
+
+vector_app = typer.Typer(help="Vector embedding commands for similarity search")
+
+
+@vector_app.command("init")
+def vector_init(
+    backend: str = typer.Option(
+        "pgvector",
+        "--backend",
+        "-b",
+        help="Vector backend to initialize (pgvector or qdrant).",
+    ),
+) -> None:
+    """Initialize vector store backend.
+
+    For pgvector: ensures pgvector extension and tables exist.
+    For qdrant: validates connection to Qdrant server.
+    """
+    from baseball.settings import get_settings
+    from baseball.vector.document_store import VectorStoreManager
+
+    settings = get_settings()
+
+    if backend == "pgvector":
+        try:
+            manager = VectorStoreManager(pgvector_connection_str=str(settings.database.url))
+            # Accessing pgvector_store triggers initialization
+            _ = manager.pgvector_store
+            console.print("[green]PgVector initialized successfully.[/green]")
+        except Exception as exc:
+            console.print(f"[red]Failed to initialize PgVector: {exc}[/red]")
+            raise typer.Exit(code=1)
+    elif backend == "qdrant":
+        try:
+            manager = VectorStoreManager()
+            _ = manager.qdrant_store
+            console.print("[green]Qdrant connection validated successfully.[/green]")
+        except Exception as exc:
+            console.print(f"[red]Failed to connect to Qdrant: {exc}[/red]")
+            raise typer.Exit(code=1)
+    else:
+        console.print(f"[red]Unknown backend: {backend}[/red]")
+        raise typer.Exit(code=1)
+
+
+@vector_app.command("embed-players")
+def embed_players_cmd(
+    database_url: str = typer.Option(
+        ...,
+        envvar="DATABASE_URL",
+        help="PostgreSQL connection string.",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Embedding model to use (overrides EMBEDDING_MODEL env).",
+    ),
+    batch_size: int = typer.Option(
+        100,
+        "--batch-size",
+        "-n",
+        help="Batch size for embedding API calls.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show players to embed without writing.",
+    ),
+) -> None:
+    """Generate and store embeddings for all players.
+
+    Uses OpenAI embeddings (text-embedding-3-small) by default.
+    Embeddings stored in raw_vector.embeddings with source_table='player'.
+    """
+    from baseball.vector.embeddings import (
+        embed_players,
+        fetch_players_for_embedding,
+        make_player_text,
+    )
+
+    if dry_run:
+        players = fetch_players_for_embedding(database_url)
+        console.print(f"[yellow]DRY RUN — {len(players)} players would be embedded[/yellow]")
+        for p in players[:10]:
+            text = make_player_text(
+                p["full_name"],
+                bats=p["bats"],
+                throws=p["throws"],
+                birth_year=p["birth_year"],
+            )
+            console.print(f"  {p['player_id']}: {text}")
+        if len(players) > 10:
+            console.print(f"  ... and {len(players) - 10} more")
+        return
+
+    embedded, written = embed_players(
+        database_url=database_url,
+        batch_size=batch_size,
+        model=model or "text-embedding-3-small",
+    )
+    console.print(
+        f"[green]Embedding complete: {embedded} generated, {written} written to database[/green]"
+    )
+
+
+@vector_app.command("embed-games")
+def embed_games_cmd(
+    database_url: str = typer.Option(
+        ...,
+        envvar="DATABASE_URL",
+        help="PostgreSQL connection string.",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Embedding model to use.",
+    ),
+    batch_size: int = typer.Option(
+        100,
+        "--batch-size",
+        "-n",
+        help="Batch size for embedding API calls.",
+    ),
+    season: Optional[int] = typer.Option(
+        None,
+        "--season",
+        "-s",
+        help="Season to filter games.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show games to embed without writing.",
+    ),
+) -> None:
+    """Generate and store embeddings for games.
+
+    Uses OpenAI embeddings (text-embedding-3-small) by default.
+    Embeddings stored in raw_vector.embeddings with source_table='game'.
+    """
+    from baseball.vector.embeddings import (
+        embed_games,
+        fetch_games_for_embedding,
+        make_game_text,
+    )
+
+    if dry_run:
+        games = fetch_games_for_embedding(database_url, season)
+        console.print(f"[yellow]DRY RUN — {len(games)} games would be embedded[/yellow]")
+        for g in games[:10]:
+            text = make_game_text(
+                g["home_team"],
+                g["away_team"],
+                g["game_date"],
+                g["venue"],
+            )
+            console.print(f"  {g['game_id']}: {text}")
+        if len(games) > 10:
+            console.print(f"  ... and {len(games) - 10} more")
+        return
+
+    embedded, written = embed_games(
+        database_url=database_url,
+        batch_size=batch_size,
+        model=model or "text-embedding-3-small",
+        season=season,
+    )
+    console.print(
+        f"[green]Embedding complete: {embedded} generated, {written} written to database[/green]"
+    )
+
+
+app.add_typer(vector_app, name="vector")
+
+
+# ---------------------------------------------------------------------------
+# Export commands
+# ---------------------------------------------------------------------------
+
+export_app = typer.Typer(help="Export features to Parquet for ML training")
+
+
+@export_app.command("features")
+def export_features_cmd(
+    database_url: str = typer.Option(
+        ...,
+        envvar="DATABASE_URL",
+        help="PostgreSQL connection string.",
+    ),
+    output_dir: str = typer.Option(
+        "./exports",
+        "--output-dir",
+        "-o",
+        help="Output directory for parquet files (local or S3 path).",
+    ),
+    views: Optional[str] = typer.Option(
+        None,
+        "--views",
+        "-v",
+        help="Comma-separated list of views to export (default: all).",
+    ),
+    partition_by: Optional[str] = typer.Option(
+        None,
+        "--partition-by",
+        "-p",
+        help="Column to partition output by.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show views to export without writing.",
+    ),
+) -> None:
+    """Export materialized views to Parquet format.
+
+    Exports mart.mv_player_statcast_summary, mart.mv_pitch_arsenal_by_season,
+    and mart.mv_game_score_context for use in Python/R ML training pipelines.
+
+    Output format: Parquet (supports local filesystem and S3).
+    """
+    from baseball.export import MART_VIEWS
+
+    if views:
+        view_list = [v.strip() for v in views.split(",")]
+    else:
+        view_list = MART_VIEWS
+
+    if dry_run:
+        console.print("[yellow]DRY RUN — views to export:[/yellow]")
+        for v in view_list:
+            console.print(f"  mart.{v}")
+        return
+
+    from baseball.export import export_features
+
+    exported, rows = export_features(
+        database_url=database_url,
+        views=view_list,
+        output_dir=output_dir,
+        partition_by=partition_by,
+    )
+    console.print(
+        f"[green]Export complete: {exported} views, {rows} total rows[/green]"
+    )
+
+
+app.add_typer(export_app, name="export")
