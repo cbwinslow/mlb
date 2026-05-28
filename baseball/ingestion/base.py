@@ -78,10 +78,10 @@ class BaseIngester(ABC):
         Returns:
             The source_endpoint_id integer.
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             result = await conn.execute(
                 "SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = %s",
-                {"endpoint_code": endpoint_code},
+                (endpoint_code,),
             )
             row = await result.fetchone()
             if row:
@@ -90,12 +90,12 @@ class BaseIngester(ABC):
             result = await conn.execute(
                 """
                 INSERT INTO meta.source_endpoint (endpoint_code, endpoint_name, source_system_id)
-                VALUES (%(code)s, %(name)s, (SELECT source_system_id FROM meta.source_system WHERE code = %(source)s))
-                ON CONFLICT (endpoint_code) DO UPDATE
+                VALUES (%s, %s, (SELECT source_system_id FROM meta.source_system WHERE source_code = %s))
+                ON CONFLICT (source_system_id, endpoint_code) DO UPDATE
                     SET endpoint_name = EXCLUDED.endpoint_name
                 RETURNING source_endpoint_id
                 """,
-                {"code": endpoint_code, "name": endpoint_code, "source": self.source_code},
+                (endpoint_code, endpoint_code, self.source_code),
             )
             return (await result.fetchone())[0]
 
@@ -115,7 +115,7 @@ class BaseIngester(ABC):
         """
         from baseball.ingestion.orchestrator import start_ingest_run
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             return await start_ingest_run(conn, source_endpoint_id, metadata)
 
     async def _complete_ingest_run(
@@ -133,7 +133,7 @@ class BaseIngester(ABC):
         """
         from baseball.ingestion.orchestrator import finish_ingest_run
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             await finish_ingest_run(conn, ingest_run_id, status, error_message)
 
     def _get_season_from_date(self, game_date: date) -> int:

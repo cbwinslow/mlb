@@ -49,7 +49,7 @@ class IngestEngine:
         Returns:
             Number of rows loaded
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             with file_path.open("r", encoding=encoding) as fh:
                 col_clause = f"({', '.join(columns)})" if columns else ""
                 sql = f"""
@@ -90,7 +90,7 @@ class IngestEngine:
         Returns:
             The inserted row's primary key value
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             extra_sql = ""
             extra_values = {}
             for key, value in extra_columns.items():
@@ -154,7 +154,7 @@ class IngestEngine:
         Returns:
             The player_identity_id
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             sql = """
                 INSERT INTO stg.player_identity
                     (mlbam_player_id, full_name, identity_source,
@@ -194,7 +194,7 @@ class IngestEngine:
         Returns:
             The ingest_run_id UUID string
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             sql = """
                 INSERT INTO meta.ingest_run
                     (source_endpoint_id, run_status, error_message, started_at)
@@ -225,7 +225,7 @@ class IngestEngine:
             status: Final status (succeeded, failed, partial, cancelled)
             error_message: Optional error message for failures
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             sql = """
                 UPDATE meta.ingest_run
                 SET run_status = %(status)s,

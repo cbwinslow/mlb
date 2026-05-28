@@ -6,14 +6,24 @@ start/end timestamps. Designed to be used as an async context manager.
 
 from __future__ import annotations
 
+import json
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import AsyncIterator, Optional
+from dataclasses import dataclass, asdict
+from datetime import date, datetime, timezone
+from typing import Any, AsyncIterator, Optional
 
 import psycopg
 from psycopg_pool import AsyncConnectionPool
+
+
+class _JSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles date/datetime objects."""
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, date):
+            return o.isoformat()
+        return super().default(o)
 
 
 @dataclass
@@ -44,19 +54,15 @@ async def start_ingest_run(
     ingest_run_id = uuid.uuid4()
     sql = """
         INSERT INTO meta.ingest_run (
-            ingest_run_id, source_endpoint_id, run_metadata, started_at
+            ingest_run_id, source_system_id, source_endpoint_id, request_params, started_at
         )
-        VALUES (%(ingest_run_id)s, %(source_endpoint_id)s, %(run_metadata)s, NOW())
+        VALUES (%s, (SELECT source_system_id FROM meta.source_endpoint WHERE source_endpoint_id = %s), %s, %s::jsonb, NOW())
         RETURNING ingest_run_id
     """
     run_metadata_json = run_metadata or {}
     result = await conn.execute(
         sql,
-        {
-            "ingest_run_id": ingest_run_id,
-            "source_endpoint_id": source_endpoint_id,
-            "run_metadata": run_metadata_json,
-        },
+        (ingest_run_id, source_endpoint_id, source_endpoint_id, json.dumps(run_metadata_json, cls=_JSONEncoder)),
     )
     return (await result.fetchone())[0]
 
@@ -78,17 +84,13 @@ async def finish_ingest_run(
     sql = """
         UPDATE meta.ingest_run
         SET finished_at = NOW(),
-            run_status = %(status)s,
-            error_message = %(error_message)s
-        WHERE ingest_run_id = %(ingest_run_id)s
+            run_status = %s,
+            error_message = %s
+        WHERE ingest_run_id = %s
     """
     await conn.execute(
         sql,
-        {
-            "ingest_run_id": ingest_run_id,
-            "status": status,
-            "error_message": error_message,
-        },
+        (status, error_message, ingest_run_id),
     )
     await conn.commit()
 
@@ -115,7 +117,7 @@ class IngestionOrchestrator:
         self._conn: Optional[psycopg.AsyncConnection] = None
 
     async def __aenter__(self) -> IngestRunInfo:
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             self._conn = conn
             self.ingest_run_id = await start_ingest_run(
                 conn, self.source_endpoint_id, self.run_metadata
@@ -127,7 +129,7 @@ class IngestionOrchestrator:
             )
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.connection() as conn:
             if exc_type is not None:
                 await finish_ingest_run(
                     conn,
@@ -146,7 +148,7 @@ class IngestionOrchestrator:
         metadata: Optional[dict] = None,
     ) -> AsyncIterator[IngestRunInfo]:
         """Create an ingest_run context without storing state on self."""
-        async with pool.acquire() as conn:
+        async with pool.connection() as conn:
             run_id = await start_ingest_run(conn, endpoint_id, metadata or {})
             run_info = IngestRunInfo(
                 ingest_run_id=run_id,
@@ -156,5 +158,5 @@ class IngestionOrchestrator:
         try:
             yield run_info
         finally:
-            async with pool.acquire() as conn:
+            async with pool.connection() as conn:
                 await finish_ingest_run(conn, run_id, status="succeeded")
