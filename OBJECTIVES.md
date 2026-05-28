@@ -282,17 +282,16 @@ This section records significant design decisions and their rationale. New decis
 
 ---
 
-### DEC-011 — ML Ops Export: PostgreSQL Materialized Views Primary; Parquet/S3 as Optional Export (2026-05-19)
-**Decision:** PostgreSQL materialized views are the primary ML feature serving layer. Parquet/S3 export added as an optional path.
-**Rationale:** MVs integrate directly with existing stack. Parquet export is valuable for large model training in Python/R (`arrow::read_parquet()` is dramatically faster than `RPostgres` for large feature tables) and for reproducibility of training snapshots.
-**Implementation order:** Materialized views first. Parquet export CLI in Milestone 3.
+### DEC-011 — ML Ops Export: Parquet/S3 Support (2026-05-27)
+**Decision:** Export materialized views to Parquet format via `baseball export features` CLI.
+**Rationale:** Parquet export is essential for Python/R ML workflows where `arrow::read_parquet()` or `pyarrow.parquet` is dramatically faster than database queries for large feature tables.
+**Implementation:** `baseball/export.py` with fetch_mart_view, export_to_parquet, export_features functions. Supports local filesystem and S3 via s3fs.
 
 ---
 
-### DEC-012 — Migration File Naming: Separate Versioned Files, Not In-Place Rewrites (2026-05-19)
+### DEC-012 — Migration File Naming: Separate Versioned Files (2026-05-19)
 **Decision:** Additive changes to existing raw tables use separate migration files named `NNN_source_migration_vX.sql` rather than modifying the original `CREATE TABLE` file in-place.
-**Rationale:** In-place rewriting of a CREATE TABLE file that is already applied causes confusion about "what to run on a fresh DB" vs "what has already been applied." The `003_raw_statcast_migration_v2.sql` file established this pattern.
-**Note:** This supersedes the guidance in Issue #9 Step 1 which said "modify original files in-place." The versioned migration approach is now canonical.
+**Rationale:** In-place rewriting of a CREATE TABLE file that is already applied causes confusion about "what to run on a fresh DB" vs "what has already been applied." The versioned migration approach is now canonical.
 
 ---
 
@@ -379,7 +378,4 @@ Active backlog ordered by dependency. Each item links to its GitHub issue.
 
 ### ML Ops Layer (070)
 
-| # | Task | File | Status | Issue |
-|---|------|------|--------|-------|
-| M-1 | `mv_player_statcast_summary` materialized view | `sql/070_ml_ops/` | ✅ Complete | #16 |
-| M-2 | Parquet export CLI `baseball export-features --format parquet` | Python package | 🔴 Not started | #17 |
+All items complete. See Completed section in AGENTS.md.

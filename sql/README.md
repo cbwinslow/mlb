@@ -64,7 +64,9 @@ sql/
 │   ├── 009_mart_refresh_functions.sql
 │   ├── 010_ingestion_ops_functions.sql
 │   ├── 011_api_service_functions.sql
-│   └── 012_source_ingestion_functions.sql
+│   ├── 012_source_ingestion_functions.sql
+│   ├── 013_identity_validation_functions.sql
+│   └── 014_identity_reconciliation_functions.sql
 └── 090_constraints_indexes/
     ├── 002_retrosheet_chadwick_indexes.sql
     ├── 003_statcast_mlbapi_indexes.sql

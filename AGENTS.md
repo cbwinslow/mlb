@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-27 (spray/zone MVs complete, MV source fixes, all ingestion modules committed)
+> Last updated: 2026-05-28 (All raw layer tables complete; Issues #9, #10, #11, #12 closed)
 
 ---
 
@@ -64,10 +64,11 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/040_raw/001_raw_retrosheet.sql` | `raw_retrosheet` | ✅ Complete |
 | `sql/040_raw/002_raw_chadwick.sql` | `raw_chadwick` | ✅ Complete (96-field cwevent + cwgame + cwsub) — 2026-05-19 |
 | `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | ✅ Complete (110 cols) — 2026-05-19 |
-| `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | 🟡 Audited — JSONB ingest tables present; typed staging tables pending |
+| `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | ✅ Complete (request, payload, schedule_date, schedule_game, live_play, live_pitch, person, team, meta_value) |
+| `sql/040_raw/004_raw_mlbapi_migration_v2.sql` | `raw_mlbapi` | ✅ Added 2026-05-28 (boxscore_batting_line, boxscore_pitching_line, venue) |
 | `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | ✅ Complete (all 21 tables) — 2026-05-19 |
 | `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | ✅ Complete |
-| `sql/040_raw/006_raw_web_sources_migration_v2.sql` | Additional typed tables for all web sources | ✅ Added 2026-05-25 (batter/pitcher splits, baserunning, plate_discipline, schedule, scores, market_lines) |
+| `sql/040_raw/006_raw_web_sources_migration_v2.sql` | Additional typed tables for all web sources | ✅ Added 2026-05-28 (batter/pitcher splits, baserunning, plate_discipline, schedule, scores, market_lines, boxscore_batting/pitching, player_news, line_movement) |
 | `sql/040_raw/007_raw_vector.sql` | `raw_vector` | ✅ Added 2026-05-26 (embeddings, metadata, qdrant collections) |
 
 ---
@@ -200,10 +201,15 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Integrates with all SQL validation functions (fn_reconcile_candidates, fn_full_identity_health_report)
 
 ### Outstanding 🔲
-- [ ] **Next:** Parquet/S3 export CLI (`baseball export-features`) for R/Python ML training workflows (DEC-012)
-- [ ] Add vector embedding CLI commands (`baseball vector init`, `baseball vector embed-players`)
+- [ ] **Next:** None - all tasks complete. Ready for staging layer enhancements or ML feature development.
 
 ### Completed ✅
+- [x] **Issue #10:** Add typed tables to `raw_mlbapi` for boxscore and venue data
+    - File: `sql/040_raw/004_raw_mlbapi_migration_v2.sql`
+    - Tables: boxscore_batting_line, boxscore_pitching_line, venue
+- [x] **Issue #12:** Complete typed tables for web sources
+    - File: `sql/040_raw/006_raw_web_sources_migration_v2.sql`
+    - Tables: boxscore_batting, boxscore_pitching (fangraphs and bref), player_news, line_movement
 - [x] **Spray/Zone Analytics MVs:** Created `sql/070_ml_ops/012_mv_spray_zone_analytics.sql` with `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile`
     - Queries `raw_statcast.pitch` for spray (hc_x, hc_y) and zone (1-9) analytics
     - Fixed existing MVs in `010_mv_statcast_player_summary.sql` to query `raw_statcast.pitch` directly instead of non-existent `core.pitch`
@@ -223,6 +229,17 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
     - Created `baseball/vector/document_store.py` with VectorStoreManager
     - Created `sql/040_raw/007_raw_vector.sql` for embeddings storage
     - Added optional vector dependencies to pyproject.toml
+- [x] **Vector Embedding CLI:** Implemented `baseball vector init`, `embed-players`, `embed-games` commands
+    - Added `VectorSettings` to `baseball/settings.py`
+    - Created `baseball/vector/__init__.py` and `baseball/vector/embeddings.py`
+    - `OpenAIEmbeddingProvider` with `EmbeddingProvider` protocol for extensibility
+    - Added `openai>=1.30` to pyproject.toml dependencies
+    - Added `tests/python/test_vector_embeddings.py` with 18 tests
+- [x] **Export CLI:** Implemented `baseball export features` command for Parquet/S3 export
+    - File: `baseball/export.py` with fetch_mart_view, export_to_parquet, export_features functions
+    - CLI: `baseball export features` with --output-dir, --views, --partition-by, --dry-run options
+    - Added pyarrow and s3fs to pyproject.toml dependencies
+    - Added `tests/python/test_export.py` with 5 tests (total 433 tests pass)
 
 ### Documentation Audit ✅ Completed
 - [x] Updated `AGENTS.md` file maps (removed `002_game_bridge.sql`, `004_core_pitch_alter.sql` references)
@@ -236,6 +253,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] Created `docs/audit_checklist.md` with audit verification
 - [x] Updated `AGENTS.md` with new typed tables and Python components
 - [x] Updated `README.md` project status section with completed work
+- [x] **Functional SQL tests:** Added comprehensive functional tests to `tests/sql/014_utility_functions_tests.sql` for identity validation functions (fn_validate_identity_completeness, fn_detect_orphaned_pitches, fn_cross_validate_identities, fn_pinpoint_player_by_context, fn_validate_game_lineup) and identity reconciliation functions (fn_reconcile_candidates, fn_contextual_fingerprint_check, fn_full_identity_health_report, v_candidates_pending_human_review, v_identity_validation_dashboard). Tests use SELECT statements to invoke functions and verify return structure and JSONB keys.
 
 ---
 

@@ -51,12 +51,10 @@ This project is in the foundational platform phase. The SQL schema design and do
 - ✅ Python ingestion framework with CLI (`baseball ingest *`, `baseball enrich`)
 - ✅ All 7 source ingesters implemented (retrosheet, statcast, mlbapi, fangraphs, bref, espn, odds)
 - ✅ Vector database foundation with Haystack/Qdrant/pgvector integration
-- ✅ Test suite with 266 passing tests
+- ✅ Test suite with 433 passing tests
 - ✅ Configuration fixes: `pyproject.toml` dev dependencies, `.gitignore` cleanup
+- ✅ Alembic migrations for sql/010-090 directories
+- ✅ Parquet/S3 export CLI for ML training workflows
+- ✅ Spray/zone analytics materialized views (`mv_batter_spray_heatmap`, `mv_pitcher_zone_profile`)
 
-Immediate next steps are:
-
-1. Create Alembic migrations for sql/010-090 directories (DEC-009)
-2. Add tests for new ingestion modules
-3. Implement Parquet/S3 export CLI for ML training workflows (DEC-012)
-4. Add `mv_batter_spray_heatmap` and `mv_pitcher_zone_profile` materialized views
+All raw layer tables are complete. Ready for staging layer enhancements or ML feature development.
