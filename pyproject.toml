@@ -39,6 +39,12 @@ dependencies = [
     "openai>=1.30",
     "pyarrow>=15.0",
     "s3fs>=2024.3",
+    "aiohttp>=3.9",
+    "pyretrosheet>=0.0.10",
+    "pychadwick>=0.6.1",
+    "psycopg2>=2.9.12",
+    "psycopg-pool>=3.3.1",
+    "psycopg>=3.3.4",
 ]
 
 [project.optional-dependencies]
