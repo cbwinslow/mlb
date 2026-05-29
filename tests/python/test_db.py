@@ -220,12 +220,18 @@ class TestRunBootstrap:
 
     def test_dry_run_shows_plan(self):
         """Dry run shows plan without executing."""
-        with patch("baseball.db._drop_database") as mock_drop, \
-             patch("baseball.db._create_database") as mock_create, \
-             patch("baseball.db._run_sql_file") as mock_run, \
-             patch("baseball.db.get_sql_files") as mock_get_files, \
-             patch("baseball.db.SQL_ROOT", Path("/home/cbwinslow/workspace/mlb/sql")):
-            mock_get_files.return_value = (Path("/home/cbwinslow/workspace/mlb/sql/010_extensions/001_extensions.sql"),)
+        with (
+            patch("baseball.db._drop_database") as mock_drop,
+            patch("baseball.db._create_database") as mock_create,
+            patch("baseball.db._run_sql_file") as mock_run,
+            patch("baseball.db.get_sql_files") as mock_get_files,
+            patch("baseball.db.SQL_ROOT", Path("/home/cbwinslow/workspace/mlb/sql")),
+        ):
+            mock_get_files.return_value = (
+                Path(
+                    "/home/cbwinslow/workspace/mlb/sql/010_extensions/001_extensions.sql"
+                ),
+            )
             run_bootstrap("postgresql://localhost/mlb")
             mock_drop.assert_not_called()
             mock_create.assert_not_called()
@@ -233,12 +239,18 @@ class TestRunBootstrap:
 
     def test_recreate_drops_and_creates(self):
         """Recreate flag drops and creates database."""
-        with patch("baseball.db._drop_database") as mock_drop, \
-             patch("baseball.db._create_database") as mock_create, \
-             patch("baseball.db._run_sql_file") as mock_run, \
-             patch("baseball.db.get_sql_files") as mock_get_files, \
-             patch("baseball.db.SQL_ROOT", Path("/home/cbwinslow/workspace/mlb/sql")):
-            mock_get_files.return_value = (Path("/home/cbwinslow/workspace/mlb/sql/010_extensions/001_extensions.sql"),)
+        with (
+            patch("baseball.db._drop_database") as mock_drop,
+            patch("baseball.db._create_database") as mock_create,
+            patch("baseball.db._run_sql_file") as mock_run,
+            patch("baseball.db.get_sql_files") as mock_get_files,
+            patch("baseball.db.SQL_ROOT", Path("/home/cbwinslow/workspace/mlb/sql")),
+        ):
+            mock_get_files.return_value = (
+                Path(
+                    "/home/cbwinslow/workspace/mlb/sql/010_extensions/001_extensions.sql"
+                ),
+            )
             run_bootstrap("postgresql://localhost/mlb", recreate=True)
             mock_drop.assert_called_once()
             mock_create.assert_called_once()
@@ -249,9 +261,11 @@ class TestRunBootstrap:
             Path("/home/cbwinslow/workspace/mlb/sql/010_extensions/001_extensions.sql"),
             Path("/home/cbwinslow/workspace/mlb/sql/020_schemas/001_schemas.sql"),
         ]
-        with patch("baseball.db._run_sql_file") as mock_run, \
-             patch("baseball.db.get_sql_files") as mock_get_files, \
-             patch("baseball.db.SQL_ROOT", Path("/home/cbwinslow/workspace/mlb/sql")):
+        with (
+            patch("baseball.db._run_sql_file") as mock_run,
+            patch("baseball.db.get_sql_files") as mock_get_files,
+            patch("baseball.db.SQL_ROOT", Path("/home/cbwinslow/workspace/mlb/sql")),
+        ):
             mock_get_files.return_value = tuple(mock_files)
             run_bootstrap("postgresql://localhost/mlb")
             assert mock_run.call_count == len(mock_files)

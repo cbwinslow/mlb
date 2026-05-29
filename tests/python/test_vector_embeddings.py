@@ -105,7 +105,9 @@ class TestOpenAIEmbeddingProvider:
 
     def test_init_stores_model(self):
         """Model is stored correctly."""
-        provider = OpenAIEmbeddingProvider(api_key="test", model="text-embedding-3-large")
+        provider = OpenAIEmbeddingProvider(
+            api_key="test", model="text-embedding-3-large"
+        )
         assert provider.model == "text-embedding-3-large"
 
     def test_init_default_model(self):
@@ -203,7 +205,9 @@ class TestWriteEmbeddings:
         embeddings = [[0.1] * 1536]
 
         with patch("psycopg2.connect", return_value=mock_conn):
-            write_embeddings("postgresql://test", records, embeddings, "player", "model")
+            write_embeddings(
+                "postgresql://test", records, embeddings, "player", "model"
+            )
 
         call_args = mock_cursor.execute.call_args
         sql = call_args[0][0]

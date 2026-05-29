@@ -13,7 +13,13 @@ from typing import Optional
 import pandas as pd
 import psycopg2
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 
 log = logging.getLogger(__name__)
 console = Console()

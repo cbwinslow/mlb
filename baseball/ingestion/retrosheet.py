@@ -689,22 +689,26 @@ class RetrosheetIngester(BaseIngester):
 
         async with self.pool.connection() as conn:
             for roster_file in roster_files:
-                # Parse .ROS files - they're fixed-width text files
+                # Parse .ROS files - comma-separated format
+                # Format: player_id,last_name,first_name,bats,throws,team,position
                 with open(roster_file, "r") as f:
                     for line in f:
                         if line.strip() and not line.startswith("#"):
                             result.rows_processed += 1
-                            # .ROS format: player_id,last_name,first_name,team,bats,throws,position
                             parts = line.strip().split(",")
-                            if len(parts) >= 4:
+                            if len(parts) >= 6:
+                                # Extract team code from filename (e.g., ATL2023.ROS -> ATL)
+                                team_code = roster_file.stem[0:3] if len(roster_file.stem) >= 3 else None
+                                # Extract season from filename (e.g., ATL2023.ROS -> 2023)
+                                season = int(roster_file.stem[3:]) if roster_file.stem[3:].isdigit() else None
                                 mapped = {
                                     "player_id": parts[0],
-                                    "team_id": parts[3],
-                                    "season": int(roster_file.stem[:4]) if roster_file.stem[:4].isdigit() else None,
+                                    "team_id": team_code,
+                                    "season": season,
                                     "last_name": parts[1] if len(parts) > 1 else None,
                                     "first_name": parts[2] if len(parts) > 2 else None,
-                                    "bats": parts[4] if len(parts) > 4 else None,
-                                    "throws": parts[5] if len(parts) > 5 else None,
+                                    "bats": parts[3] if len(parts) > 3 else None,
+                                    "throws": parts[4] if len(parts) > 4 else None,
                                     "position": parts[6] if len(parts) > 6 else None,
                                     "raw_roster_json": json.dumps({"line": line.strip()}),
                                 }
