@@ -14,6 +14,7 @@ from uuid import UUID
 from psycopg_pool import AsyncConnectionPool
 
 from baseball.ingestion.base import BaseIngester, IngestResult
+from baseball.ingestion.engine import IngestEngine
 from baseball.ingestion.loaders import HistoricalLoaderFactory
 
 log = logging.getLogger(__name__)
@@ -33,12 +34,13 @@ class BRefIngester(BaseIngester):
     ):
         super().__init__(pool, workspace_id, "bref")
         self.data_dir = data_dir or Path("data/bref")
+        self.engine = IngestEngine(pool)
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
         async with self.pool.connection() as conn:
             result = await conn.execute(
-                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_bref' AND tablename = 'batting')"
+                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_bref' AND tablename = 'batting_standard')"
             )
             return (await result.fetchone())[0]
 
@@ -88,7 +90,9 @@ class BRefIngester(BaseIngester):
         result.duration_seconds = time.time() - start_time
         return result
 
-    async def _ingest_batting(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_batting(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest batting stats from Baseball Reference."""
         result = IngestResult()
 
@@ -107,10 +111,14 @@ class BRefIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_bref.batting", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_bref.batting_standard", csv_path
+        )
         return result
 
-    async def _ingest_pitching(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_pitching(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest pitching stats from Baseball Reference."""
         result = IngestResult()
 
@@ -129,10 +137,14 @@ class BRefIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_bref.pitching", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_bref.pitching_standard", csv_path
+        )
         return result
 
-    async def _ingest_fielding(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_fielding(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest fielding stats from Baseball Reference."""
         result = IngestResult()
 
@@ -151,10 +163,14 @@ class BRefIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_bref.fielding", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_bref.fielding_standard", csv_path
+        )
         return result
 
-    async def _ingest_schedule(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_schedule(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest schedule data from Baseball Reference."""
         result = IngestResult()
 
@@ -199,5 +215,8 @@ class BRefIngester(BaseIngester):
         return result
 
     async def _bulk_load_csv(self, table_name: str, csv_path: Path) -> int:
-        """Bulk load CSV into a table using COPY."""
-        return 0
+        """Bulk load CSV into a table using COPY.
+
+        Delegates to IngestEngine for actual loading.
+        """
+        return await self.engine.bulk_load_raw_csv(table_name, csv_path)

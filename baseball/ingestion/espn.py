@@ -16,6 +16,7 @@ from uuid import UUID
 from psycopg_pool import AsyncConnectionPool
 
 from baseball.ingestion.base import BaseIngester, IngestResult
+from baseball.ingestion.engine import IngestEngine
 from baseball.ingestion.loaders import HistoricalLoaderFactory
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class ESPNIngester(BaseIngester):
     ):
         super().__init__(pool, workspace_id, "espn")
         self.data_dir = data_dir or Path("data/espn")
+        self.engine = IngestEngine(pool)
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
@@ -92,7 +94,9 @@ class ESPNIngester(BaseIngester):
         result.duration_seconds = time.time() - start_time
         return result
 
-    async def _ingest_schedule(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_schedule(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest schedule data from ESPN."""
         result = IngestResult()
 
@@ -104,23 +108,66 @@ class ESPNIngester(BaseIngester):
         result.rows_processed = len(teams)
 
         async with self.pool.connection() as conn:
-            for team in teams:
-                await conn.execute(
-                    """
-                    INSERT INTO raw_espn.schedule (
-                        espn_team_id, season, schedule_json, created_at
-                    ) VALUES (
-                        %s, %s, %s, NOW()
-                    )
-                    """,
-                    (team.get("id"), season, json.dumps(team.get("schedule", {}))),
+            # Create request record for this ingestion
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_espn.request (
+                    raw_espn_request_id, ingest_run_id, source_endpoint_id,
+                    request_url, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'espn'),
+                    %s, NOW()
                 )
+                RETURNING raw_espn_request_id
+                """,
+                (ingest_run_id, url),
+            )
+            request_id = (await request_result.fetchone())[0]
+
+            for team in teams:
+                team_schedule = team.get("schedule", {})
+                # ESPN API returns schedule entries; we need to iterate them
+                schedule_entries = (
+                    team_schedule.get("entries", [team_schedule])
+                    if isinstance(team_schedule, dict)
+                    else []
+                )
+                for entry in schedule_entries:
+                    await conn.execute(
+                        """
+                        INSERT INTO raw_espn.schedule (
+                            raw_espn_schedule_id, raw_espn_request_id, season, game_date, home_team_id,
+                            away_team_id, venue_id, game_type, status, raw_schedule_json
+                        ) VALUES (
+                            gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s
+                        )
+                        """,
+                        (
+                            request_id,
+                            season,
+                            entry.get("date"),
+                            entry.get("homeTeam", {}).get("id")
+                            if isinstance(entry.get("homeTeam"), dict)
+                            else entry.get("homeTeam", {}).get("team", {}).get("id"),
+                            entry.get("awayTeam", {}).get("id")
+                            if isinstance(entry.get("awayTeam"), dict)
+                            else entry.get("awayTeam", {}).get("team", {}).get("id"),
+                            entry.get("venue", {}).get("id")
+                            if isinstance(entry.get("venue"), dict)
+                            else None,
+                            entry.get("gameType"),
+                            entry.get("status"),
+                            json.dumps(entry),
+                        ),
+                    )
             await conn.commit()
 
         result.rows_inserted = result.rows_processed
         return result
 
-    async def _ingest_scores(self, game_date: date, ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_scores(
+        self, game_date: date, ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest scores for a specific date."""
         result = IngestResult()
 
@@ -132,23 +179,67 @@ class ESPNIngester(BaseIngester):
         result.rows_processed = len(events)
 
         async with self.pool.connection() as conn:
+            # Create request record for this ingestion
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_espn.request (
+                    raw_espn_request_id, ingest_run_id, source_endpoint_id,
+                    request_url, request_params, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'espn'),
+                    %s, %s, NOW()
+                )
+                RETURNING raw_espn_request_id
+                """,
+                (ingest_run_id, url, json.dumps(params)),
+            )
+            request_id = (await request_result.fetchone())[0]
+
             for event in events:
+                # Find home and away teams from competitors
+                competitions = event.get("competitions", [])
+                if not competitions:
+                    continue
+                competitors = competitions[0].get("competitors", [])
+                home_team = next(
+                    (c for c in competitors if c.get("homeAway") == "home"), {}
+                )
+                away_team = next(
+                    (c for c in competitors if c.get("homeAway") == "away"), {}
+                )
+                home_score = home_team.get("score")
+                away_score = away_team.get("score")
+
                 await conn.execute(
                     """
                     INSERT INTO raw_espn.scores (
-                        espn_event_id, game_date, score_json, created_at
+                        raw_espn_scores_id, raw_espn_request_id, game_date, game_pk, home_team_id,
+                        away_team_id, home_score, away_score, status, quarter_scores, raw_scores_json
                     ) VALUES (
-                        %s, %s, %s, NOW()
+                        gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
-                    (event.get("id"), game_date, json.dumps(event)),
+                    (
+                        request_id,
+                        game_date,
+                        event.get("id"),
+                        home_team.get("id"),
+                        away_team.get("id"),
+                        int(home_score) if home_score else None,
+                        int(away_score) if away_score else None,
+                        event.get("status", {}).get("type", {}).get("description"),
+                        None,  # quarter_scores - would need more parsing
+                        json.dumps(event),
+                    ),
                 )
             await conn.commit()
 
         result.rows_inserted = result.rows_processed
         return result
 
-    async def _ingest_standings(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_standings(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest standings data from ESPN."""
         result = IngestResult()
 
@@ -159,15 +250,31 @@ class ESPNIngester(BaseIngester):
         result.rows_processed = 1
 
         async with self.pool.connection() as conn:
+            # Create request record for this ingestion
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_espn.request (
+                    raw_espn_request_id, ingest_run_id, source_endpoint_id,
+                    request_url, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'espn'),
+                    %s, NOW()
+                )
+                RETURNING raw_espn_request_id
+                """,
+                (ingest_run_id, url),
+            )
+            request_id = (await request_result.fetchone())[0]
+
             await conn.execute(
                 """
                 INSERT INTO raw_espn.standings (
-                    season, standings_json, created_at
+                    raw_espn_request_id, season, standings_json
                 ) VALUES (
-                    %s, %s, NOW()
+                    %s, %s, %s
                 )
                 """,
-                (season, json.dumps(data)),
+                (request_id, season, json.dumps(data)),
             )
             await conn.commit()
 

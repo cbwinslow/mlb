@@ -69,6 +69,26 @@ class BaseIngester(ABC):
         """
         ...
 
+    async def _create_request_id(self, ingest_run_id: UUID) -> UUID:
+        """Create a request record for raw data ingestion.
+
+        Args:
+            ingest_run_id: UUID of the ingest run.
+
+        Returns:
+            The raw request UUID for the specific source.
+        """
+        result = await self.pool.execute(
+            """
+            INSERT INTO meta.source_file (file_path, file_hash, ingest_run_id)
+            VALUES (%s, %s, %s)
+            RETURNING source_file_id
+            """,
+            (f"{self.source_code}_ingest", None, ingest_run_id),
+        )
+        row = await result.fetchone()
+        return row[0] if row else ingest_run_id
+
     async def _get_source_endpoint_id(self, endpoint_code: str) -> int:
         """Get source_endpoint_id for tracking.
 
@@ -145,3 +165,20 @@ class BaseIngester(ABC):
         if isinstance(date_val, str):
             return date_val
         return date_val.isoformat()
+
+    async def _bulk_load_csv(
+        self,
+        table_name: str,
+        csv_path: Path,
+    ) -> int:
+        """Bulk load CSV into a table using IngestEngine.
+
+        Args:
+            table_name: Fully qualified table name (e.g., 'raw_fangraphs.batting_standard').
+            csv_path: Path to the CSV file to load.
+
+        Returns:
+            Number of rows loaded.
+        """
+        engine = IngestEngine(self.pool)
+        return await engine.bulk_load_raw_csv(table_name, csv_path)

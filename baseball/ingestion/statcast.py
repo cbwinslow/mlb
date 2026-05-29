@@ -76,7 +76,9 @@ class StatcastIngester(BaseIngester):
             elif start_date and end_date:
                 result = await self._ingest_range(start_date, end_date, ingest_run_id)
             else:
-                raise ValueError("Either season or start_date/end_date must be provided")
+                raise ValueError(
+                    "Either season or start_date/end_date must be provided"
+                )
 
             await self._complete_ingest_run(ingest_run_id, "succeeded")
         except Exception as e:

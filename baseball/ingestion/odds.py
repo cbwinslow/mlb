@@ -16,6 +16,7 @@ from uuid import UUID
 from psycopg_pool import AsyncConnectionPool
 
 from baseball.ingestion.base import BaseIngester, IngestResult
+from baseball.ingestion.engine import IngestEngine
 from baseball.ingestion.loaders import HistoricalLoaderFactory
 
 log = logging.getLogger(__name__)
@@ -100,7 +101,7 @@ class OddsIngester(BaseIngester):
         if not self.api_key:
             raise ValueError("API key required for odds ingestion")
 
-        url = "https://api.the-odds-api.com/v4/sports/{sport}/odds-history"
+        url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds-history"
         params = {
             "apiKey": self.api_key,
             "date": game_date.isoformat(),
@@ -110,18 +111,65 @@ class OddsIngester(BaseIngester):
         result.rows_processed = len(data)
 
         async with self.pool.connection() as conn:
+            # First create provider_request record
+            request_result = await conn.execute(
+                """
+                INSERT INTO raw_odds.provider_request (
+                    raw_odds_provider_request_id, ingest_run_id, source_endpoint_id,
+                    provider_code, request_url, request_params, requested_at
+                ) VALUES (
+                    gen_random_uuid(), %s, (SELECT source_endpoint_id FROM meta.source_endpoint WHERE endpoint_code = 'odds'),
+                    %s, %s, %s, NOW()
+                )
+                RETURNING raw_odds_provider_request_id
+                """,
+                (ingest_run_id, sport, url, json.dumps(params)),
+            )
+            request_id = (await request_result.fetchone())[0]
+
+            # Create provider_payload record for this request
+            payload_result = await conn.execute(
+                """
+                INSERT INTO raw_odds.provider_payload (
+                    raw_odds_provider_request_id,
+                    provider_code, endpoint_code, sport_key, payload_json
+                ) VALUES (
+                    %s, %s, 'odds-history', %s, %s
+                )
+                RETURNING raw_odds_provider_payload_id
+                """,
+                (request_id, sport, sport, json.dumps(data)),
+            )
+            payload_id = (await payload_result.fetchone())[0]
+
+            # Insert each market line into market_lines table
             for market in data:
                 await conn.execute(
                     """
                     INSERT INTO raw_odds.market_lines (
-                        odds_request_id, sport_key, game_date,
-                        market_json, created_at
+                        raw_odds_provider_payload_id, sport_key, event_key, market_key,
+                        bookmaker_key, outcome_key, outcome_name, outcome_price, outcome_point,
+                        market_started, market_completed, raw_markets_json
                     ) VALUES (
-                        gen_random_uuid(), %s, %s,
-                        %s, NOW()
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
-                    (sport, game_date, json.dumps(market)),
+                    (
+                        payload_id,
+                        sport,
+                        market.get("id"),
+                        market.get("key"),
+                        market.get("bookmaker", {}).get("key")
+                        if market.get("bookmaker")
+                        else "unknown",
+                        None,  # outcome_key
+                        None,  # outcome_name
+                        None,  # outcome_price
+                        None,  # outcome_point
+                        None,  # market_started
+                        None,  # market_completed
+                        json.dumps(market),
+                    ),
                 )
             await conn.commit()
 

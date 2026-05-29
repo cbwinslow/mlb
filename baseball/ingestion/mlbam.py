@@ -98,7 +98,9 @@ class MLBAMIngester(BaseIngester):
         result.duration_seconds = time.time() - start_time
         return result
 
-    async def _ingest_schedule(self, game_date: date, ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_schedule(
+        self, game_date: date, ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest schedule for a specific date."""
         result = IngestResult()
 

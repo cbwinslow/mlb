@@ -62,7 +62,12 @@ async def start_ingest_run(
     run_metadata_json = run_metadata or {}
     result = await conn.execute(
         sql,
-        (ingest_run_id, source_endpoint_id, source_endpoint_id, json.dumps(run_metadata_json, cls=_JSONEncoder)),
+        (
+            ingest_run_id,
+            source_endpoint_id,
+            source_endpoint_id,
+            json.dumps(run_metadata_json, cls=_JSONEncoder),
+        ),
     )
     return (await result.fetchone())[0]
 
@@ -148,7 +153,7 @@ class IngestionOrchestrator:
         metadata: Optional[dict] = None,
     ) -> AsyncIterator[IngestRunInfo]:
         """Create an ingest_run context without storing state on self."""
-        async with pool.connection() as conn:
+        async with self.pool.connection() as conn:
             run_id = await start_ingest_run(conn, endpoint_id, metadata or {})
             run_info = IngestRunInfo(
                 ingest_run_id=run_id,
@@ -158,5 +163,5 @@ class IngestionOrchestrator:
         try:
             yield run_info
         finally:
-            async with pool.connection() as conn:
+            async with self.pool.connection() as conn:
                 await finish_ingest_run(conn, run_id, status="succeeded")
