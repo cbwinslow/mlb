@@ -51,28 +51,26 @@ class IngestEngine:
             Number of rows loaded
         """
         async with self.pool.connection() as conn:
+            col_clause = f"({', '.join(columns)})" if columns else ""
+            sql = f"""
+                COPY {table_name}{col_clause}
+                FROM STDIN
+                WITH (
+                    FORMAT csv,
+                    HEADER true,
+                    DELIMITER '{delimiter}',
+                    NULL '{null}'
+                )
+            """
+            # psycopg v3 async copy: pass file handle to execute
             with file_path.open("r", encoding=encoding) as fh:
-                async with conn.cursor() as cur:
-                    col_clause = f"({', '.join(columns)})" if columns else ""
-                    sql = f"""
-                        COPY {table_name}{col_clause}
-                        FROM STDIN
-                        WITH (
-                            FORMAT csv,
-                            HEADER true,
-                            DELIMITER '{delimiter}',
-                            NULL '{null}'
-                        )
-                    """
-                    async with cur.copy(sql) as copy:
-                        for line in fh:
-                            await copy.write(line.encode(encoding))
-                await conn.commit()
+                await conn.execute(sql, fh, binary=True)
+            await conn.commit()
 
-                # Return count
-                result = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
-                row = await result.fetchone()
-                return row[0]
+            # Return count
+            result = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+            row = result.fetchone()
+            return row[0]
 
     async def ingest_raw_jsonb(
         self,

@@ -272,6 +272,12 @@ class RetrosheetIngester(BaseIngester):
                 result = await self._ingest_biographical(ingest_run_id)
             elif data_type == "rosters":
                 result = await self._ingest_rosters(ingest_run_id)
+            elif data_type == "batting":
+                result = await self._ingest_batting(ingest_run_id)
+            elif data_type == "pitching":
+                result = await self._ingest_pitching(ingest_run_id)
+            elif data_type == "fielding":
+                result = await self._ingest_fielding(ingest_run_id)
             elif data_type == "all":
                 result = await self._ingest_all(ingest_run_id)
             else:
@@ -356,7 +362,7 @@ class RetrosheetIngester(BaseIngester):
                         "strikes_ct": record.get("strikes"),
                         "pitch_seq_tx": record.get("pitches"),
                         "ab_fl": bool(record.get("ab", 0)),
-                        "h_fl": bool(record.get("h", 0)),
+                        "h_fl": bool(record.get("single", 0) or record.get("double", 0) or record.get("triple", 0) or record.get("hr", 0)),
                         "sh_fl": bool(record.get("sh", 0)),
                         "sf_fl": bool(record.get("sf", 0)),
                         "bunt_fl": bool(record.get("bunt", 0)),
@@ -709,7 +715,7 @@ class RetrosheetIngester(BaseIngester):
                                     "first_name": parts[2] if len(parts) > 2 else None,
                                     "bats": parts[3] if len(parts) > 3 else None,
                                     "throws": parts[4] if len(parts) > 4 else None,
-                                    "position": parts[6] if len(parts) > 6 else None,
+                                    "position": parts[5] if len(parts) > 5 else None,
                                     "raw_roster_json": json.dumps({"line": line.strip()}),
                                 }
                                 await conn.execute(
@@ -727,6 +733,234 @@ class RetrosheetIngester(BaseIngester):
                 result.rows_inserted += result.rows_processed
 
         log.info("Ingested %d roster records", result.rows_inserted)
+        return result
+
+    async def _ingest_batting(self, ingest_run_id: UUID) -> IngestResult:
+        """Ingest batting stats from CSV package."""
+        result = IngestResult()
+
+        csv_dir = self.data_dir / "csv"
+        batting_csv = csv_dir / "batting.csv"
+
+        if not batting_csv.exists():
+            log.warning("No batting.csv found at %s", batting_csv)
+            return result
+
+        chunk_iter = pd.read_csv(batting_csv, chunksize=10000)
+
+        async with self.pool.connection() as conn:
+            for chunk in chunk_iter:
+                records = chunk.to_dict(orient="records")
+                result.rows_processed += len(records)
+
+                for record in records:
+                    mapped = {
+                        "game_id": record.get("gid"),
+                        "player_id": record.get("id"),
+                        "team_id": record.get("team"),
+                        "stat_type": record.get("stattype"),
+                        "pa": record.get("b_pa"),
+                        "ab": record.get("b_ab"),
+                        "r": record.get("b_r"),
+                        "h": record.get("b_h"),
+                        "d": record.get("b_d"),
+                        "t": record.get("b_t"),
+                        "hr": record.get("b_hr"),
+                        "rbi": record.get("b_rbi"),
+                        "sh": record.get("b_sh"),
+                        "sf": record.get("b_sf"),
+                        "hbp": record.get("b_hbp"),
+                        "bb": record.get("b_w"),
+                        "iw": record.get("b_iw"),
+                        "k": record.get("b_k"),
+                        "sb": record.get("b_sb"),
+                        "cs": record.get("b_cs"),
+                        "gdp": record.get("b_gdp"),
+                        "xi": record.get("b_xi"),
+                        "roe": record.get("b_roe"),
+                        "dh_fl": bool(record.get("dh", 0)),
+                        "ph_fl": bool(record.get("ph", 0)),
+                        "pr_fl": bool(record.get("pr", 0)),
+                        "game_date": record.get("date"),
+                        "game_num": record.get("number"),
+                        "site": record.get("site"),
+                        "vishome": record.get("vishome"),
+                        "opp": record.get("opp"),
+                        "win": record.get("win"),
+                        "loss": record.get("loss"),
+                        "tie": record.get("tie"),
+                        "gametype": record.get("gametype"),
+                        "raw_batting_json": json.dumps(record),
+                    }
+                    await conn.execute(
+                        """
+                        INSERT INTO raw_retrosheet.batting (
+                            game_id, player_id, team_id, stat_type, pa, ab, r, h, d, t,
+                            hr, rbi, sh, sf, hbp, bb, iw, k, sb, cs, gdp, xi, roe,
+                            dh_fl, ph_fl, pr_fl, game_date, game_num, site, vishome, opp,
+                            win, loss, tie, gametype, raw_batting_json
+                        ) VALUES (
+                            %(game_id)s, %(player_id)s, %(team_id)s, %(stat_type)s, %(pa)s, %(ab)s, %(r)s, %(h)s, %(d)s, %(t)s,
+                            %(hr)s, %(rbi)s, %(sh)s, %(sf)s, %(hbp)s, %(bb)s, %(iw)s, %(k)s, %(sb)s, %(cs)s, %(gdp)s, %(xi)s, %(roe)s,
+                            %(dh_fl)s, %(ph_fl)s, %(pr_fl)s, %(game_date)s, %(game_num)s, %(site)s, %(vishome)s, %(opp)s,
+                            %(win)s, %(loss)s, %(tie)s, %(gametype)s, %(raw_batting_json)s
+                        )
+                        ON CONFLICT DO NOTHING
+                        """,
+                        mapped,
+                    )
+                await conn.commit()
+                result.rows_inserted += len(records)
+
+        log.info("Ingested %d batting records", result.rows_inserted)
+        return result
+
+    async def _ingest_pitching(self, ingest_run_id: UUID) -> IngestResult:
+        """Ingest pitching stats from CSV package."""
+        result = IngestResult()
+
+        csv_dir = self.data_dir / "csv"
+        pitching_csv = csv_dir / "pitching.csv"
+
+        if not pitching_csv.exists():
+            log.warning("No pitching.csv found at %s", pitching_csv)
+            return result
+
+        chunk_iter = pd.read_csv(pitching_csv, chunksize=10000)
+
+        async with self.pool.connection() as conn:
+            for chunk in chunk_iter:
+                records = chunk.to_dict(orient="records")
+                result.rows_processed += len(records)
+
+                for record in records:
+                    mapped = {
+                        "game_id": record.get("gid"),
+                        "player_id": record.get("id"),
+                        "team_id": record.get("team"),
+                        "stat_type": record.get("stattype"),
+                        "ipouts": record.get("p_ipouts"),
+                        "noout": record.get("p_noout"),
+                        "bfp": record.get("p_bfp"),
+                        "h": record.get("p_h"),
+                        "d": record.get("p_d"),
+                        "t": record.get("p_t"),
+                        "hr": record.get("p_hr"),
+                        "r": record.get("p_r"),
+                        "er": record.get("p_er"),
+                        "w": record.get("p_w"),
+                        "iw": record.get("p_iw"),
+                        "k": record.get("p_k"),
+                        "hbp": record.get("p_hbp"),
+                        "wp": record.get("p_wp"),
+                        "bk": record.get("p_bk"),
+                        "sh": record.get("p_sh"),
+                        "sf": record.get("p_sf"),
+                        "sb": record.get("p_sb"),
+                        "cs": record.get("p_cs"),
+                        "pb": record.get("p_pb"),
+                        "gs": record.get("p_gs"),
+                        "gf": record.get("p_gf"),
+                        "cg": record.get("p_cg"),
+                        "game_date": record.get("date"),
+                        "game_num": record.get("number"),
+                        "site": record.get("site"),
+                        "vishome": record.get("vishome"),
+                        "opp": record.get("opp"),
+                        "win": record.get("win"),
+                        "loss": record.get("loss"),
+                        "tie": record.get("tie"),
+                        "gametype": record.get("gametype"),
+                        "raw_pitching_json": json.dumps(record),
+                    }
+                    await conn.execute(
+                        """
+                        INSERT INTO raw_retrosheet.pitching (
+                            game_id, player_id, team_id, stat_type, ipouts, noout, bfp, h, d, t,
+                            hr, r, er, w, iw, k, hbp, wp, bk, sh, sf, sb, cs, pb, gs, gf, cg,
+                            game_date, game_num, site, vishome, opp, win, loss, tie, gametype, raw_pitching_json
+                        ) VALUES (
+                            %(game_id)s, %(player_id)s, %(team_id)s, %(stat_type)s, %(ipouts)s, %(noout)s, %(bfp)s, %(h)s, %(d)s, %(t)s,
+                            %(hr)s, %(r)s, %(er)s, %(w)s, %(iw)s, %(k)s, %(hbp)s, %(wp)s, %(bk)s, %(sh)s, %(sf)s, %(sb)s, %(cs)s, %(pb)s, %(gs)s, %(gf)s, %(cg)s,
+                            %(game_date)s, %(game_num)s, %(site)s, %(vishome)s, %(opp)s, %(win)s, %(loss)s, %(tie)s, %(gametype)s, %(raw_pitching_json)s
+                        )
+                        ON CONFLICT DO NOTHING
+                        """,
+                        mapped,
+                    )
+                await conn.commit()
+                result.rows_inserted += len(records)
+
+        log.info("Ingested %d pitching records", result.rows_inserted)
+        return result
+
+    async def _ingest_fielding(self, ingest_run_id: UUID) -> IngestResult:
+        """Ingest fielding stats from CSV package."""
+        result = IngestResult()
+
+        csv_dir = self.data_dir / "csv"
+        fielding_csv = csv_dir / "fielding.csv"
+
+        if not fielding_csv.exists():
+            log.warning("No fielding.csv found at %s", fielding_csv)
+            return result
+
+        chunk_iter = pd.read_csv(fielding_csv, chunksize=10000)
+
+        async with self.pool.connection() as conn:
+            for chunk in chunk_iter:
+                records = chunk.to_dict(orient="records")
+                result.rows_processed += len(records)
+
+                for record in records:
+                    mapped = {
+                        "game_id": record.get("gid"),
+                        "player_id": record.get("id"),
+                        "team_id": record.get("team"),
+                        "stat_type": record.get("stattype"),
+                        "seq": record.get("d_seq"),
+                        "pos": record.get("d_pos"),
+                        "ifouts": record.get("d_ifouts"),
+                        "po": record.get("d_po"),
+                        "a": record.get("d_a"),
+                        "e": record.get("d_e"),
+                        "dp": record.get("d_dp"),
+                        "tp": record.get("d_tp"),
+                        "pb": record.get("d_pb"),
+                        "wp": record.get("d_wp"),
+                        "sb": record.get("d_sb"),
+                        "cs": record.get("d_cs"),
+                        "gs": record.get("d_gs"),
+                        "game_date": record.get("date"),
+                        "game_num": record.get("number"),
+                        "site": record.get("site"),
+                        "vishome": record.get("vishome"),
+                        "opp": record.get("opp"),
+                        "win": record.get("win"),
+                        "loss": record.get("loss"),
+                        "tie": record.get("tie"),
+                        "gametype": record.get("gametype"),
+                        "raw_fielding_json": json.dumps(record),
+                    }
+                    await conn.execute(
+                        """
+                        INSERT INTO raw_retrosheet.fielding (
+                            game_id, player_id, team_id, stat_type, seq, pos, ifouts, po, a, e,
+                            dp, tp, pb, wp, sb, cs, gs, game_date, game_num, site, vishome, opp,
+                            win, loss, tie, gametype, raw_fielding_json
+                        ) VALUES (
+                            %(game_id)s, %(player_id)s, %(team_id)s, %(stat_type)s, %(seq)s, %(pos)s, %(ifouts)s, %(po)s, %(a)s, %(e)s,
+                            %(dp)s, %(tp)s, %(pb)s, %(wp)s, %(sb)s, %(cs)s, %(gs)s, %(game_date)s, %(game_num)s, %(site)s, %(vishome)s, %(opp)s,
+                            %(win)s, %(loss)s, %(tie)s, %(gametype)s, %(raw_fielding_json)s
+                        )
+                        ON CONFLICT DO NOTHING
+                        """,
+                        mapped,
+                    )
+                await conn.commit()
+                result.rows_inserted += len(records)
+
+        log.info("Ingested %d fielding records", result.rows_inserted)
         return result
 
     async def _ingest_all(self, ingest_run_id: UUID) -> IngestResult:
@@ -752,5 +986,20 @@ class RetrosheetIngester(BaseIngester):
         roster_result = await self._ingest_rosters(ingest_run_id)
         result.rows_processed += roster_result.rows_processed
         result.rows_inserted += roster_result.rows_inserted
+
+        # Ingest batting stats
+        batting_result = await self._ingest_batting(ingest_run_id)
+        result.rows_processed += batting_result.rows_processed
+        result.rows_inserted += batting_result.rows_inserted
+
+        # Ingest pitching stats
+        pitching_result = await self._ingest_pitching(ingest_run_id)
+        result.rows_processed += pitching_result.rows_processed
+        result.rows_inserted += pitching_result.rows_inserted
+
+        # Ingest fielding stats
+        fielding_result = await self._ingest_fielding(ingest_run_id)
+        result.rows_processed += fielding_result.rows_processed
+        result.rows_inserted += fielding_result.rows_inserted
 
         return result

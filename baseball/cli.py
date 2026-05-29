@@ -181,12 +181,12 @@ def ingest_retrosheet(
         help="Download files from retrosheet.org before ingesting.",
     ),
     data_type: Optional[str] = typer.Option(
-        None, "--type", "-t", help="Data type: events, game_log, bio, rosters, all."
+        None, "--type", "-t", help="Data type: events, game_log, bio, rosters, batting, pitching, fielding, all."
     ),
 ) -> None:
     """Ingest ALL Retrosheet data.
 
-    Downloads and ingests event files, game logs, biographical data, and rosters.
+    Downloads and ingests event files, game logs, biographical data, rosters, and stats.
     """
     import asyncio
     from psycopg_pool import AsyncConnectionPool
