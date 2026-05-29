@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-28 (All raw layer tables complete; Issues #9, #10, #11, #12 closed)
+> Last updated: 2026-05-29 (Lahman database ingested; 706K rows loaded into raw_lahman schema)
 
 ---
 
@@ -205,6 +205,12 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 
 ### Outstanding 🔲
 - [ ] **Next:** None - all tasks complete. Ready for staging layer enhancements or ML feature development.
+
+### Completed ✅
+- [x] **Lahman database ingestion** - Loaded 706,466 rows across 27 tables
+    - Tables: people (24,270), batting (128,598), pitching (57,630), fielding (174,332), teams (3,614), salaries (26,428), and 21 other tables
+    - Data source: `lahman_1871-2025_csv.zip` extracted to `data/lahman/`
+    - CLI: `baseball ingest lahman` command working
 
 ### Completed ✅
 - [x] **Issue #10:** Add typed tables to `raw_mlbapi` for boxscore and venue data
