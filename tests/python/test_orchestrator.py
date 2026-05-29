@@ -10,7 +10,11 @@ import uuid
 
 import pytest
 
-from baseball.ingestion.orchestrator import IngestionOrchestrator, start_ingest_run, finish_ingest_run
+from baseball.ingestion.orchestrator import (
+    IngestionOrchestrator,
+    start_ingest_run,
+    finish_ingest_run,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +88,9 @@ class TestStartIngestRun:
     async def test_inserts_ingest_run_record(self, mock_conn):
         """Inserts record into meta.ingest_run."""
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         result = await start_ingest_run(mock_conn, source_endpoint_id=1)
@@ -96,10 +102,14 @@ class TestStartIngestRun:
     async def test_handles_run_metadata(self, mock_conn):
         """Run metadata is included in insert."""
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
-        await start_ingest_run(mock_conn, source_endpoint_id=1, run_metadata={"source": "test"})
+        await start_ingest_run(
+            mock_conn, source_endpoint_id=1, run_metadata={"source": "test"}
+        )
 
         # Check positional args - the 4th arg is the JSON metadata
         call_args = mock_conn.execute.call_args[0][1]
@@ -109,14 +119,16 @@ class TestStartIngestRun:
     async def test_run_metadata_defaults_to_empty_dict(self, mock_conn):
         """Run metadata defaults to empty dict when not provided."""
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         await start_ingest_run(mock_conn, source_endpoint_id=1)
 
         # Check positional args - the 4th arg is the JSON metadata
         call_args = mock_conn.execute.call_args[0][1]
-        assert call_args[3] == '{}'
+        assert call_args[3] == "{}"
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +142,11 @@ class TestFinishIngestRun:
     @pytest.mark.asyncio
     async def test_updates_ingest_run(self, mock_conn):
         """Updates ingest run with completion timestamp."""
-        await finish_ingest_run(mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"), status="succeeded")
+        await finish_ingest_run(
+            mock_conn,
+            ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+            status="succeeded",
+        )
 
         sql_arg = mock_conn.execute.call_args[0][0]
         assert "UPDATE meta.ingest_run" in sql_arg
@@ -152,7 +168,9 @@ class TestFinishIngestRun:
     @pytest.mark.asyncio
     async def test_status_defaults_to_succeeded(self, mock_conn):
         """Status defaults to succeeded when not provided."""
-        await finish_ingest_run(mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"))
+        await finish_ingest_run(
+            mock_conn, ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678")
+        )
 
         sql_arg = mock_conn.execute.call_args[0][0]
         assert "UPDATE meta.ingest_run" in sql_arg
@@ -175,7 +193,9 @@ class TestAsyncEnter:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         orchestrator = IngestionOrchestrator(pool=mock_pool, source_endpoint_id=1)
@@ -192,7 +212,9 @@ class TestAsyncEnter:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         orchestrator = IngestionOrchestrator(pool=mock_pool, source_endpoint_id=1)
@@ -218,7 +240,9 @@ class TestAsyncExit:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         orchestrator = IngestionOrchestrator(pool=mock_pool, source_endpoint_id=1)
@@ -237,7 +261,9 @@ class TestAsyncExit:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         orchestrator = IngestionOrchestrator(pool=mock_pool, source_endpoint_id=1)
@@ -265,13 +291,17 @@ class TestOrchestratorIntegration:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         orchestrator = IngestionOrchestrator(pool=mock_pool, source_endpoint_id=1)
 
         async with orchestrator as orch:
-            assert orch.ingest_run_id == uuid.UUID("12345678-1234-5678-1234-567812345678")
+            assert orch.ingest_run_id == uuid.UUID(
+                "12345678-1234-5678-1234-567812345678"
+            )
             assert orch.source_endpoint_id == 1
 
     @pytest.mark.asyncio
@@ -282,7 +312,9 @@ class TestOrchestratorIntegration:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute.return_value = mock_result
 
         orchestrator = IngestionOrchestrator(pool=mock_pool, source_endpoint_id=1)

@@ -98,7 +98,9 @@ class TestGetSourceEndpointId:
             async def validate(self):
                 return True
 
-        ingester = ConcreteIngester(pool=mock_pool, workspace_id=workspace_id, source_code="test")
+        ingester = ConcreteIngester(
+            pool=mock_pool, workspace_id=workspace_id, source_code="test"
+        )
         result = await ingester._get_source_endpoint_id("test_endpoint")
 
         assert result == 1
@@ -130,7 +132,9 @@ class TestGetSourceEndpointId:
             async def validate(self):
                 return True
 
-        ingester = ConcreteIngester(pool=mock_pool, workspace_id=workspace_id, source_code="test")
+        ingester = ConcreteIngester(
+            pool=mock_pool, workspace_id=workspace_id, source_code="test"
+        )
         result = await ingester._get_source_endpoint_id("new_endpoint")
 
         assert result == 2
@@ -149,7 +153,9 @@ class TestCreateIngestRun:
         """Ingest run is created with correct parameters."""
         mock_conn = AsyncMock()
         mock_result = AsyncMock()
-        mock_result.fetchone = AsyncMock(return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")])
+        mock_result.fetchone = AsyncMock(
+            return_value=[uuid.UUID("12345678-1234-5678-1234-567812345678")]
+        )
         mock_conn.execute = AsyncMock(return_value=mock_result)
 
         mock_acquire_ctx = MagicMock()
@@ -164,7 +170,9 @@ class TestCreateIngestRun:
             async def validate(self):
                 return True
 
-        ingester = ConcreteIngester(pool=mock_pool, workspace_id=workspace_id, source_code="statcast")
+        ingester = ConcreteIngester(
+            pool=mock_pool, workspace_id=workspace_id, source_code="statcast"
+        )
         result = await ingester._create_ingest_run(source_endpoint_id=1)
 
         assert result == uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -198,7 +206,9 @@ class TestCompleteIngestRun:
             async def validate(self):
                 return True
 
-        ingester = ConcreteIngester(pool=mock_pool, workspace_id=workspace_id, source_code="statcast")
+        ingester = ConcreteIngester(
+            pool=mock_pool, workspace_id=workspace_id, source_code="statcast"
+        )
         await ingester._complete_ingest_run(
             ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
             status="succeeded",
@@ -225,7 +235,9 @@ class TestCompleteIngestRun:
             async def validate(self):
                 return True
 
-        ingester = ConcreteIngester(pool=mock_pool, workspace_id=workspace_id, source_code="statcast")
+        ingester = ConcreteIngester(
+            pool=mock_pool, workspace_id=workspace_id, source_code="statcast"
+        )
         await ingester._complete_ingest_run(
             ingest_run_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
             status="failed",

@@ -70,7 +70,10 @@ class TestGetPkColumn:
 
     def test_raw_fangraphs_returns_correct_pk(self, ingest_engine):
         """Returns correct PK for raw_fangraphs tables."""
-        assert ingest_engine._get_pk_column("raw_fangraphs.batter_splits") == "raw_fangraphs_payload_id"
+        assert (
+            ingest_engine._get_pk_column("raw_fangraphs.batter_splits")
+            == "raw_fangraphs_payload_id"
+        )
 
     def test_raw_bref_returns_correct_pk(self, ingest_engine):
         """Returns correct PK for raw_bref tables."""
@@ -82,7 +85,10 @@ class TestGetPkColumn:
 
     def test_raw_odds_returns_correct_pk(self, ingest_engine):
         """Returns correct PK for raw_odds tables."""
-        assert ingest_engine._get_pk_column("raw_odds.market_lines") == "raw_odds_provider_payload_id"
+        assert (
+            ingest_engine._get_pk_column("raw_odds.market_lines")
+            == "raw_odds_provider_payload_id"
+        )
 
     def test_unknown_schema_returns_default(self, ingest_engine):
         """Unknown schema returns 'id' as default."""
@@ -111,6 +117,7 @@ class TestBulkLoadRawCsv:
 
         # Create temp CSV file
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("col1,col2\nval1,val2\n")
             temp_path = Path(f.name)
@@ -140,6 +147,7 @@ class TestBulkLoadRawCsv:
         mock_conn.commit = AsyncMock()
 
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("col1,col2\nval1,val2\n")
             temp_path = Path(f.name)
@@ -259,7 +267,9 @@ class TestRecordIngestRun:
         """Ingest run record is created."""
         mock_conn = AsyncMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-        mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: ["run-uuid-123"]))
+        mock_conn.execute = AsyncMock(
+            return_value=AsyncMock(fetchone=lambda: ["run-uuid-123"])
+        )
         mock_conn.commit = AsyncMock()
 
         result = await ingest_engine.record_ingest_run(
@@ -276,7 +286,9 @@ class TestRecordIngestRun:
         """Error message is stored when provided."""
         mock_conn = AsyncMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-        mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: ["run-uuid"]))
+        mock_conn.execute = AsyncMock(
+            return_value=AsyncMock(fetchone=lambda: ["run-uuid"])
+        )
         mock_conn.commit = AsyncMock()
 
         await ingest_engine.record_ingest_run(

@@ -33,7 +33,9 @@ class TestStreamCsvFile:
             temp_path = Path(f.name)
 
         try:
-            chunks = list(HistoricalLoaderFactory.stream_csv_file(temp_path, chunk_size=1000))
+            chunks = list(
+                HistoricalLoaderFactory.stream_csv_file(temp_path, chunk_size=1000)
+            )
             assert len(chunks) == 1
             assert len(chunks[0]) == 2  # 2 data rows
         finally:
@@ -45,11 +47,13 @@ class TestStreamCsvFile:
             writer = csv.writer(f)
             writer.writerow(["col1", "col2"])
             for i in range(2500):
-                writer.writerow([f"val{i}", f"val{i+1}"])
+                writer.writerow([f"val{i}", f"val{i + 1}"])
             temp_path = Path(f.name)
 
         try:
-            chunks = list(HistoricalLoaderFactory.stream_csv_file(temp_path, chunk_size=1000))
+            chunks = list(
+                HistoricalLoaderFactory.stream_csv_file(temp_path, chunk_size=1000)
+            )
             assert len(chunks) == 3  # 2500 rows / 1000 = 3 chunks
         finally:
             temp_path.unlink()
@@ -69,14 +73,18 @@ class TestStreamCsvFile:
 
     def test_handles_custom_encoding(self):
         """Custom encoding is respected."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False, encoding="utf-8"
+        ) as f:
             writer = csv.writer(f)
             writer.writerow(["col1", "col2"])
             writer.writerow(["val1", "val2"])
             temp_path = Path(f.name)
 
         try:
-            chunks = list(HistoricalLoaderFactory.stream_csv_file(temp_path, encoding="utf-8"))
+            chunks = list(
+                HistoricalLoaderFactory.stream_csv_file(temp_path, encoding="utf-8")
+            )
             assert len(chunks) == 1
         finally:
             temp_path.unlink()
@@ -118,7 +126,10 @@ class TestFetchApiJsonStream:
         mock_session.get = MagicMock(return_value=mock_response)
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await HistoricalLoaderFactory.fetch_api_json_stream(
                 url="https://api.example.com/data",
                 session=mock_session,
@@ -139,7 +150,10 @@ class TestFetchApiJsonStream:
         mock_session.get = MagicMock(return_value=mock_response)
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await HistoricalLoaderFactory.fetch_api_json_stream(
                 url="https://api.example.com/data",
             )
@@ -159,7 +173,10 @@ class TestFetchApiJsonStream:
         mock_session.get = MagicMock(return_value=mock_response)
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             await HistoricalLoaderFactory.fetch_api_json_stream(
                 url="https://api.example.com/data",
                 params={"key": "value"},
@@ -183,7 +200,10 @@ class TestFetchApiJsonStream:
         mock_session.get = MagicMock(return_value=mock_response)
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             with pytest.raises(Exception, match="HTTP Error"):
                 await HistoricalLoaderFactory.fetch_api_json_stream(
                     url="https://api.example.com/data",
@@ -218,7 +238,10 @@ class TestFetchPaginatedJson:
         mock_session.get = mock_get
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await HistoricalLoaderFactory.fetch_paginated_json(
                 url="https://api.example.com/data",
                 session=mock_session,
@@ -240,7 +263,10 @@ class TestFetchPaginatedJson:
         mock_session.get = MagicMock(return_value=mock_response)
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await HistoricalLoaderFactory.fetch_paginated_json(
                 url="https://api.example.com/data",
                 session=mock_session,
@@ -261,7 +287,10 @@ class TestFetchPaginatedJson:
         mock_session.get = MagicMock(return_value=mock_response)
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await HistoricalLoaderFactory.fetch_paginated_json(
                 url="https://api.example.com/data",
                 session=mock_session,
@@ -280,9 +309,13 @@ class TestFetchPaginatedJson:
             mock_response = AsyncMock()
             # First call returns 1000 items, second returns 50 (partial)
             if call_count == 1:
-                mock_response.json = AsyncMock(return_value=[{"id": i} for i in range(1000)])
+                mock_response.json = AsyncMock(
+                    return_value=[{"id": i} for i in range(1000)]
+                )
             else:
-                mock_response.json = AsyncMock(return_value=[{"id": i} for i in range(50)])
+                mock_response.json = AsyncMock(
+                    return_value=[{"id": i} for i in range(50)]
+                )
             mock_response.raise_for_status = MagicMock()
             mock_response.__aenter__ = AsyncMock(return_value=mock_response)
             mock_response.__aexit__ = AsyncMock(return_value=None)
@@ -292,7 +325,10 @@ class TestFetchPaginatedJson:
         mock_session.get = mock_get
         mock_session.close = AsyncMock()
 
-        with patch("baseball.ingestion.loaders.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "baseball.ingestion.loaders.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
             result = await HistoricalLoaderFactory.fetch_paginated_json(
                 url="https://api.example.com/data",
                 session=mock_session,
