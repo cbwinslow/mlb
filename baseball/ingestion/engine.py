@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import psycopg
 from psycopg_pool import AsyncConnectionPool
 
 log = logging.getLogger(__name__)
@@ -51,24 +52,27 @@ class IngestEngine:
         """
         async with self.pool.connection() as conn:
             with file_path.open("r", encoding=encoding) as fh:
-                col_clause = f"({', '.join(columns)})" if columns else ""
-                sql = f"""
-                    COPY {table_name}{col_clause}
-                    FROM STDIN
-                    WITH (
-                        FORMAT csv,
-                        HEADER true,
-                        DELIMITER '{delimiter}',
-                        NULL '{null}'
-                    )
-                """
-                cursor = conn.cursor()
-                await cursor.copy_expert(sql, fh)
+                async with conn.cursor() as cur:
+                    col_clause = f"({', '.join(columns)})" if columns else ""
+                    sql = f"""
+                        COPY {table_name}{col_clause}
+                        FROM STDIN
+                        WITH (
+                            FORMAT csv,
+                            HEADER true,
+                            DELIMITER '{delimiter}',
+                            NULL '{null}'
+                        )
+                    """
+                    async with cur.copy(sql) as copy:
+                        for line in fh:
+                            await copy.write(line.encode(encoding))
                 await conn.commit()
 
                 # Return count
                 result = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
-                return result.fetchone()[0]
+                row = await result.fetchone()
+                return row[0]
 
     async def ingest_raw_jsonb(
         self,
