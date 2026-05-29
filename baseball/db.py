@@ -1,4 +1,5 @@
 """Database bootstrap and administration commands."""
+
 from __future__ import annotations
 
 import functools
@@ -72,7 +73,9 @@ def run_bootstrap(
         task = progress.add_task("Applying SQL files...", total=len(sql_files))
 
         for sql_file in sql_files:
-            progress.console.print(f"  [cyan]Applying[/cyan] {sql_file.relative_to(SQL_ROOT)}")
+            progress.console.print(
+                f"  [cyan]Applying[/cyan] {sql_file.relative_to(SQL_ROOT)}"
+            )
             _run_sql_file(pg_url, sql_file)
             progress.advance(task)
 

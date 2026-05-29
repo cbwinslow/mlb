@@ -1,13 +1,14 @@
 """Initial schema - manual DDL execution tracking
 
 Revision ID: 001_initial_schema
-Revises: 
+Revises:
 Create Date: 2026-05-26
 
 Per DEC-009: DDL is managed manually in sql/ files.
 Alembic tracks execution order only via op.execute() calls.
 See: sql/README.md for full migration order
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.

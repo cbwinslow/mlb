@@ -59,7 +59,9 @@ class VectorStoreManager:
             )
         return self._qdrant_store
 
-    def get_store(self, backend: str = "pgvector") -> PgvectorDocumentStore | QdrantDocumentStore:
+    def get_store(
+        self, backend: str = "pgvector"
+    ) -> PgvectorDocumentStore | QdrantDocumentStore:
         """Get the appropriate document store.
 
         Args:
