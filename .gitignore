@@ -174,3 +174,9 @@ plans/
 # AI planning artifacts
 .kilo/plans/
 .testagent/
+
+# Downloaded data files (Lahman, Retrosheet, etc.) - binary/large files
+data/lahman/*
+!data/lahman/.gitkeep
+data/retrosheet/*
+!data/retrosheet/.gitkeep
