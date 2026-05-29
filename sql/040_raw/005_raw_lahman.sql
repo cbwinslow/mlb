@@ -1,39 +1,46 @@
 BEGIN;
 
+-- =============================================================================
+-- Lahman Database Raw Tables
+-- =============================================================================
+-- All columns match CSV headers directly after snake_case conversion
+
+-- ---------------------------------------------------------------------------
+-- People (player registry)
+-- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.people (
     raw_lahman_people_id BIGSERIAL PRIMARY KEY,
     source_file_id UUID
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    birth_year INT,
-    birth_month INT,
-    birth_day INT,
+    id TEXT,
+    player_id TEXT,
+    birth_year TEXT,
+    birth_month TEXT,
+    birth_day TEXT,
+    birth_city TEXT,
     birth_country TEXT,
     birth_state TEXT,
-    birth_city TEXT,
-    death_year INT,
-    death_month INT,
-    death_day INT,
+    death_year TEXT,
+    death_month TEXT,
+    death_day TEXT,
     death_country TEXT,
     death_state TEXT,
     death_city TEXT,
     name_first TEXT,
     name_last TEXT,
     name_given TEXT,
-    weight INT,
-    height INT,
+    weight TEXT,
+    height TEXT,
     bats TEXT,
     throws TEXT,
-    debut DATE,
-    final_game DATE,
-    retro_id TEXT,
+    debut TEXT,
     bbref_id TEXT,
-    birth_date DATE,
-    death_date DATE,
+    final_game TEXT,
+    retro_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT raw_lahman_people_player_unique
+    CONSTRAINT raw_lahman_people_unique
         UNIQUE (source_file_id, player_id)
 );
 
@@ -49,28 +56,28 @@ CREATE TABLE IF NOT EXISTS raw_lahman.batting (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    stint INT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    stint TEXT,
     team_id TEXT,
     lg_id TEXT,
-    g INT,
-    ab INT,
-    r INT,
-    h INT,
-    x2b INT,
-    x3b INT,
-    hr INT,
-    rbi INT,
-    sb INT,
-    cs INT,
-    bb INT,
-    so INT,
-    ibb INT,
-    hbp INT,
-    sh INT,
-    sf INT,
-    gidp INT,
+    g TEXT,
+    ab TEXT,
+    r TEXT,
+    h TEXT,
+    x2b TEXT,
+    x3b TEXT,
+    hr TEXT,
+    rbi TEXT,
+    sb TEXT,
+    cs TEXT,
+    bb TEXT,
+    so TEXT,
+    ibb TEXT,
+    hbp TEXT,
+    sh TEXT,
+    sf TEXT,
+    gidp TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_batting_unique
         UNIQUE (source_file_id, player_id, year_id, stint, team_id)
@@ -88,36 +95,36 @@ CREATE TABLE IF NOT EXISTS raw_lahman.pitching (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    stint INT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    stint TEXT,
     team_id TEXT,
     lg_id TEXT,
-    w INT,
-    l INT,
-    g INT,
-    gs INT,
-    cg INT,
-    sho INT,
-    sv INT,
-    ip_outs INT,
-    h INT,
-    er INT,
-    hr INT,
-    bb INT,
-    so INT,
-    ba_opp NUMERIC(8,5),
-    era NUMERIC(8,3),
-    ibb INT,
-    wp INT,
-    hbp INT,
-    bk INT,
-    bfp INT,
-    gf INT,
-    r INT,
-    sh INT,
-    sf INT,
-    gidp INT,
+    w TEXT,
+    l TEXT,
+    g TEXT,
+    gs TEXT,
+    cg TEXT,
+    sho TEXT,
+    sv TEXT,
+    ip_outs TEXT,
+    h TEXT,
+    er TEXT,
+    hr TEXT,
+    bb TEXT,
+    so TEXT,
+    ba_opp TEXT,
+    era TEXT,
+    ibb TEXT,
+    wp TEXT,
+    hbp TEXT,
+    bk TEXT,
+    bfp TEXT,
+    gf TEXT,
+    r TEXT,
+    sh TEXT,
+    sf TEXT,
+    gidp TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_pitching_unique
         UNIQUE (source_file_id, player_id, year_id, stint, team_id)
@@ -135,24 +142,24 @@ CREATE TABLE IF NOT EXISTS raw_lahman.fielding (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    stint INT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    stint TEXT,
     team_id TEXT,
     lg_id TEXT,
     pos TEXT,
-    g INT,
-    gs INT,
-    inn_outs INT,
-    po INT,
-    a INT,
-    e INT,
-    dp INT,
-    pb INT,
-    wp INT,
-    sb INT,
-    cs INT,
-    zr NUMERIC(8,3),
+    g TEXT,
+    gs TEXT,
+    inn_outs TEXT,
+    po TEXT,
+    a TEXT,
+    e TEXT,
+    dp TEXT,
+    pb TEXT,
+    wp TEXT,
+    sb TEXT,
+    cs TEXT,
+    zr TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_fielding_unique
         UNIQUE (source_file_id, player_id, year_id, stint, team_id, pos)
@@ -162,7 +169,30 @@ COMMENT ON TABLE raw_lahman.fielding IS
     'Raw Lahman Fielding table. Regular-season fielding statistics by player, year, stint, and position.';
 
 -- ---------------------------------------------------------------------------
--- Fielding by outfield position split (LF / CF / RF)
+-- Fielding OF (outfield totals)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS raw_lahman.fielding_of (
+    raw_lahman_fielding_of_id BIGSERIAL PRIMARY KEY,
+    source_file_id UUID
+        REFERENCES meta.source_file(source_file_id)
+        ON UPDATE RESTRICT
+        ON DELETE SET NULL,
+    player_id TEXT,
+    year_id TEXT,
+    stint TEXT,
+    glf TEXT,
+    gcf TEXT,
+    grf TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT raw_lahman_fielding_of_unique
+        UNIQUE (source_file_id, player_id, year_id, stint)
+);
+
+COMMENT ON TABLE raw_lahman.fielding_of IS
+    'Raw Lahman FieldingOF table. Outfield games split by position (LF/CF/RF).';
+
+-- ---------------------------------------------------------------------------
+-- Fielding OF Split (outfield by position)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.fielding_of_split (
     raw_lahman_fielding_of_split_id BIGSERIAL PRIMARY KEY,
@@ -170,19 +200,24 @@ CREATE TABLE IF NOT EXISTS raw_lahman.fielding_of_split (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    stint INT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    stint TEXT,
     team_id TEXT,
     lg_id TEXT,
-    pos TEXT,                  -- LF, CF, or RF
-    g INT,
-    gs INT,
-    inn_outs INT,
-    po INT,
-    a INT,
-    e INT,
-    dp INT,
+    pos TEXT,
+    g TEXT,
+    gs TEXT,
+    inn_outs TEXT,
+    po TEXT,
+    a TEXT,
+    e TEXT,
+    dp TEXT,
+    pb TEXT,
+    wp TEXT,
+    sb TEXT,
+    cs TEXT,
+    zr TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_fielding_of_split_unique
         UNIQUE (source_file_id, player_id, year_id, stint, team_id, pos)
@@ -200,51 +235,51 @@ CREATE TABLE IF NOT EXISTS raw_lahman.teams (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    year_id INT NOT NULL,
+    year_id TEXT,
     lg_id TEXT,
-    team_id TEXT NOT NULL,
+    team_id TEXT,
     franch_id TEXT,
     div_id TEXT,
-    rank INT,
-    g INT,
-    g_home INT,
-    w INT,
-    l INT,
+    rank TEXT,
+    g TEXT,
+    g_home TEXT,
+    w TEXT,
+    l TEXT,
     div_win TEXT,
     wc_win TEXT,
     lg_win TEXT,
     ws_win TEXT,
-    r INT,
-    ab INT,
-    h INT,
-    x2b INT,
-    x3b INT,
-    hr INT,
-    bb INT,
-    so INT,
-    sb INT,
-    cs INT,
-    hbp INT,
-    sf INT,
-    ra INT,
-    er INT,
-    era NUMERIC(8,3),
-    cg INT,
-    sho INT,
-    sv INT,
-    ip_outs INT,
-    ha INT,
-    hra INT,
-    bba INT,
-    soa INT,
-    e INT,
-    dp INT,
-    fp NUMERIC(8,5),
+    r TEXT,
+    ab TEXT,
+    h TEXT,
+    x2b TEXT,
+    x3b TEXT,
+    hr TEXT,
+    bb TEXT,
+    so TEXT,
+    sb TEXT,
+    cs TEXT,
+    hbp TEXT,
+    sf TEXT,
+    ra TEXT,
+    er TEXT,
+    era TEXT,
+    cg TEXT,
+    sho TEXT,
+    sv TEXT,
+    ip_outs TEXT,
+    ha TEXT,
+    hra TEXT,
+    bba TEXT,
+    soa TEXT,
+    e TEXT,
+    dp TEXT,
+    fp TEXT,
     name TEXT,
     park TEXT,
-    attendance BIGINT,
-    bpf INT,
-    ppf INT,
+    attendance TEXT,
+    bpf TEXT,
+    ppf TEXT,
     team_id_br TEXT,
     team_id_lahman45 TEXT,
     team_id_retro TEXT,
@@ -257,6 +292,54 @@ COMMENT ON TABLE raw_lahman.teams IS
     'Raw Lahman Teams table. Season-level team statistics and identifiers.';
 
 -- ---------------------------------------------------------------------------
+-- Teams Franchises
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS raw_lahman.teams_franchises (
+    raw_lahman_teams_franchises_id BIGSERIAL PRIMARY KEY,
+    source_file_id UUID
+        REFERENCES meta.source_file(source_file_id)
+        ON UPDATE RESTRICT
+        ON DELETE SET NULL,
+    franch_id TEXT,
+    franch_name TEXT,
+    active TEXT,
+    n_aassoc TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT raw_lahman_teams_franchises_unique
+        UNIQUE (source_file_id, franch_id)
+);
+
+COMMENT ON TABLE raw_lahman.teams_franchises IS
+    'Raw Lahman TeamsFranchises table. Franchise reference with names and activity status.';
+
+-- ---------------------------------------------------------------------------
+-- Teams Half (split-season records)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS raw_lahman.teams_half (
+    raw_lahman_teams_half_id BIGSERIAL PRIMARY KEY,
+    source_file_id UUID
+        REFERENCES meta.source_file(source_file_id)
+        ON UPDATE RESTRICT
+        ON DELETE SET NULL,
+    year_id TEXT,
+    lg_id TEXT,
+    team_id TEXT,
+    half TEXT,
+    div_id TEXT,
+    div_win TEXT,
+    rank TEXT,
+    g TEXT,
+    w TEXT,
+    l TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT raw_lahman_teams_half_unique
+        UNIQUE (source_file_id, year_id, team_id, half)
+);
+
+COMMENT ON TABLE raw_lahman.teams_half IS
+    'Raw Lahman TeamsHalf table. Split-season (first/second half) records for teams. Primarily 1981 and 1994.';
+
+-- ---------------------------------------------------------------------------
 -- Salaries
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.salaries (
@@ -265,11 +348,11 @@ CREATE TABLE IF NOT EXISTS raw_lahman.salaries (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    year_id INT NOT NULL,
-    team_id TEXT NOT NULL,
+    year_id TEXT,
+    team_id TEXT,
     lg_id TEXT,
-    player_id TEXT NOT NULL,
-    salary NUMERIC(14,2),
+    player_id TEXT,
+    salary TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_salaries_unique
         UNIQUE (source_file_id, year_id, team_id, player_id)
@@ -279,7 +362,7 @@ COMMENT ON TABLE raw_lahman.salaries IS
     'Raw Lahman Salaries table. Player salary by season and team. Coverage begins 1985.';
 
 -- ---------------------------------------------------------------------------
--- Player Awards
+-- Awards Players
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.awards_players (
     raw_lahman_awards_players_id BIGSERIAL PRIMARY KEY,
@@ -287,9 +370,9 @@ CREATE TABLE IF NOT EXISTS raw_lahman.awards_players (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    award_id TEXT NOT NULL,
-    year_id INT NOT NULL,
+    player_id TEXT,
+    award_id TEXT,
+    year_id TEXT,
     lg_id TEXT,
     tie TEXT,
     notes TEXT,
@@ -302,7 +385,7 @@ COMMENT ON TABLE raw_lahman.awards_players IS
     'Raw Lahman AwardsPlayers table. Awards won by players (MVP, Cy Young, Gold Glove, etc.).';
 
 -- ---------------------------------------------------------------------------
--- Manager Awards
+-- Awards Managers
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.awards_managers (
     raw_lahman_awards_managers_id BIGSERIAL PRIMARY KEY,
@@ -310,9 +393,9 @@ CREATE TABLE IF NOT EXISTS raw_lahman.awards_managers (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    award_id TEXT NOT NULL,
-    year_id INT NOT NULL,
+    player_id TEXT,
+    award_id TEXT,
+    year_id TEXT,
     lg_id TEXT,
     tie TEXT,
     notes TEXT,
@@ -325,7 +408,7 @@ COMMENT ON TABLE raw_lahman.awards_managers IS
     'Raw Lahman AwardsManagers table. Awards won by managers (Manager of the Year, etc.).';
 
 -- ---------------------------------------------------------------------------
--- Player Award Voting Share
+-- Awards Share Players
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.awards_share_players (
     raw_lahman_awards_share_players_id BIGSERIAL PRIMARY KEY,
@@ -333,13 +416,13 @@ CREATE TABLE IF NOT EXISTS raw_lahman.awards_share_players (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    award_id TEXT NOT NULL,
-    year_id INT NOT NULL,
+    award_id TEXT,
+    year_id TEXT,
     lg_id TEXT,
-    player_id TEXT NOT NULL,
-    points_won NUMERIC(10,2),
-    points_max NUMERIC(10,2),
-    votes_first NUMERIC(10,2),
+    player_id TEXT,
+    points_won TEXT,
+    points_max TEXT,
+    votes_first TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_awards_share_players_unique
         UNIQUE (source_file_id, award_id, year_id, lg_id, player_id)
@@ -349,7 +432,7 @@ COMMENT ON TABLE raw_lahman.awards_share_players IS
     'Raw Lahman AwardsSharePlayers table. Award voting totals and first-place votes by player per award year.';
 
 -- ---------------------------------------------------------------------------
--- Manager Award Voting Share
+-- Awards Share Managers
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS raw_lahman.awards_share_managers (
     raw_lahman_awards_share_managers_id BIGSERIAL PRIMARY KEY,
@@ -357,13 +440,13 @@ CREATE TABLE IF NOT EXISTS raw_lahman.awards_share_managers (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    award_id TEXT NOT NULL,
-    year_id INT NOT NULL,
+    award_id TEXT,
+    year_id TEXT,
     lg_id TEXT,
-    player_id TEXT NOT NULL,
-    points_won NUMERIC(10,2),
-    points_max NUMERIC(10,2),
-    votes_first NUMERIC(10,2),
+    player_id TEXT,
+    points_won TEXT,
+    points_max TEXT,
+    votes_first TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_awards_share_managers_unique
         UNIQUE (source_file_id, award_id, year_id, lg_id, player_id)
@@ -381,18 +464,18 @@ CREATE TABLE IF NOT EXISTS raw_lahman.hall_of_fame (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    voted_by TEXT NOT NULL,       -- BBWAA, Veterans, RunOff, etc.
-    ballots INT,
-    needed INT,
-    votes INT,
-    inducted TEXT,                -- Y or N
-    category TEXT,                -- Player, Manager, Pioneer/Executive, Umpire
+    player_id TEXT,
+    yearid TEXT,
+    voted_by TEXT,
+    ballots TEXT,
+    needed TEXT,
+    votes TEXT,
+    inducted TEXT,
+    category TEXT,
     needed_note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_hall_of_fame_unique
-        UNIQUE (source_file_id, player_id, year_id, voted_by)
+        UNIQUE (source_file_id, player_id, yearid, voted_by)
 );
 
 COMMENT ON TABLE raw_lahman.hall_of_fame IS
@@ -407,7 +490,7 @@ CREATE TABLE IF NOT EXISTS raw_lahman.schools (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    school_id TEXT NOT NULL,
+    school_id TEXT,
     name_full TEXT,
     city TEXT,
     state TEXT,
@@ -429,9 +512,9 @@ CREATE TABLE IF NOT EXISTS raw_lahman.college_playing (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    school_id TEXT NOT NULL,
-    year_id INT NOT NULL,
+    player_id TEXT,
+    school_id TEXT,
+    year_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_college_playing_unique
         UNIQUE (source_file_id, player_id, school_id, year_id)
@@ -449,27 +532,27 @@ CREATE TABLE IF NOT EXISTS raw_lahman.appearances (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    year_id INT NOT NULL,
-    team_id TEXT NOT NULL,
+    year_id TEXT,
+    team_id TEXT,
     lg_id TEXT,
-    player_id TEXT NOT NULL,
-    g_all INT,
-    gs INT,
-    g_batting INT,
-    g_defense INT,
-    g_p INT,
-    g_c INT,
-    g_1b INT,
-    g_2b INT,
-    g_3b INT,
-    g_ss INT,
-    g_lf INT,
-    g_cf INT,
-    g_rf INT,
-    g_of INT,
-    g_dh INT,
-    g_ph INT,
-    g_pr INT,
+    player_id TEXT,
+    g_all TEXT,
+    gs TEXT,
+    g_batting TEXT,
+    g_defense TEXT,
+    g_p TEXT,
+    g_c TEXT,
+    g_1b TEXT,
+    g_2b TEXT,
+    g_3b TEXT,
+    g_ss TEXT,
+    g_lf TEXT,
+    g_cf TEXT,
+    g_rf TEXT,
+    g_of TEXT,
+    g_dh TEXT,
+    g_ph TEXT,
+    g_pr TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_appearances_unique
         UNIQUE (source_file_id, year_id, team_id, player_id)
@@ -487,16 +570,16 @@ CREATE TABLE IF NOT EXISTS raw_lahman.managers (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    team_id TEXT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    team_id TEXT,
     lg_id TEXT,
-    inseason INT NOT NULL DEFAULT 1,    -- order of managers within a season for a team
-    g INT,
-    w INT,
-    l INT,
-    rank INT,
-    plyr_mgr TEXT,                      -- Y if player-manager
+    inseason TEXT,
+    g TEXT,
+    w TEXT,
+    l TEXT,
+    rank TEXT,
+    plyr_mgr TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_managers_unique
         UNIQUE (source_file_id, player_id, year_id, team_id, inseason)
@@ -514,16 +597,16 @@ CREATE TABLE IF NOT EXISTS raw_lahman.managers_half (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    team_id TEXT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    team_id TEXT,
     lg_id TEXT,
-    inseason INT NOT NULL DEFAULT 1,
-    half INT NOT NULL,                  -- 1 or 2
-    g INT,
-    w INT,
-    l INT,
-    rank INT,
+    inseason TEXT,
+    half TEXT,
+    g TEXT,
+    w TEXT,
+    l TEXT,
+    rank TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_managers_half_unique
         UNIQUE (source_file_id, player_id, year_id, team_id, inseason, half)
@@ -541,28 +624,28 @@ CREATE TABLE IF NOT EXISTS raw_lahman.batting_post (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    year_id INT NOT NULL,
-    round TEXT NOT NULL,            -- WS, ALCS, NLCS, ALDS, NLDS, ALWC, NLWC
-    player_id TEXT NOT NULL,
+    year_id TEXT,
+    round TEXT,
+    player_id TEXT,
     team_id TEXT,
     lg_id TEXT,
-    g INT,
-    ab INT,
-    r INT,
-    h INT,
-    x2b INT,
-    x3b INT,
-    hr INT,
-    rbi INT,
-    sb INT,
-    cs INT,
-    bb INT,
-    so INT,
-    ibb INT,
-    hbp INT,
-    sh INT,
-    sf INT,
-    gidp INT,
+    g TEXT,
+    ab TEXT,
+    r TEXT,
+    h TEXT,
+    x2b TEXT,
+    x3b TEXT,
+    hr TEXT,
+    rbi TEXT,
+    sb TEXT,
+    cs TEXT,
+    bb TEXT,
+    so TEXT,
+    ibb TEXT,
+    hbp TEXT,
+    sh TEXT,
+    sf TEXT,
+    gidp TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_batting_post_unique
         UNIQUE (source_file_id, year_id, round, player_id, team_id)
@@ -580,36 +663,36 @@ CREATE TABLE IF NOT EXISTS raw_lahman.pitching_post (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
-    round TEXT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
+    round TEXT,
     team_id TEXT,
     lg_id TEXT,
-    w INT,
-    l INT,
-    g INT,
-    gs INT,
-    cg INT,
-    sho INT,
-    sv INT,
-    ip_outs INT,
-    h INT,
-    er INT,
-    hr INT,
-    bb INT,
-    so INT,
-    ba_opp NUMERIC(8,5),
-    era NUMERIC(8,3),
-    ibb INT,
-    wp INT,
-    hbp INT,
-    bk INT,
-    bfp INT,
-    gf INT,
-    r INT,
-    sh INT,
-    sf INT,
-    gidp INT,
+    w TEXT,
+    l TEXT,
+    g TEXT,
+    gs TEXT,
+    cg TEXT,
+    sho TEXT,
+    sv TEXT,
+    ip_outs TEXT,
+    h TEXT,
+    er TEXT,
+    hr TEXT,
+    bb TEXT,
+    so TEXT,
+    ba_opp TEXT,
+    era TEXT,
+    ibb TEXT,
+    wp TEXT,
+    hbp TEXT,
+    bk TEXT,
+    bfp TEXT,
+    gf TEXT,
+    r TEXT,
+    sh TEXT,
+    sf TEXT,
+    gidp TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_pitching_post_unique
         UNIQUE (source_file_id, player_id, year_id, round, team_id)
@@ -627,23 +710,23 @@ CREATE TABLE IF NOT EXISTS raw_lahman.fielding_post (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    player_id TEXT NOT NULL,
-    year_id INT NOT NULL,
+    player_id TEXT,
+    year_id TEXT,
     team_id TEXT,
     lg_id TEXT,
-    round TEXT NOT NULL,
-    pos TEXT NOT NULL,
-    g INT,
-    gs INT,
-    inn_outs INT,
-    po INT,
-    a INT,
-    e INT,
-    dp INT,
-    tp INT,
-    pb INT,
-    sb INT,
-    cs INT,
+    round TEXT,
+    pos TEXT,
+    g TEXT,
+    gs TEXT,
+    inn_outs TEXT,
+    po TEXT,
+    a TEXT,
+    e TEXT,
+    dp TEXT,
+    tp TEXT,
+    pb TEXT,
+    sb TEXT,
+    cs TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_fielding_post_unique
         UNIQUE (source_file_id, player_id, year_id, round, team_id, pos)
@@ -661,18 +744,18 @@ CREATE TABLE IF NOT EXISTS raw_lahman.series_post (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    year_id INT NOT NULL,
-    round TEXT NOT NULL,
-    team_id_winner TEXT,
-    lg_id_winner TEXT,
-    team_id_loser TEXT,
-    lg_id_loser TEXT,
-    wins INT,
-    losses INT,
-    ties INT,
+    year_id TEXT,
+    round TEXT,
+    team_i_dwinner TEXT,
+    lg_i_dwinner TEXT,
+    team_i_dloser TEXT,
+    lg_i_dloser TEXT,
+    wins TEXT,
+    losses TEXT,
+    ties TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_series_post_unique
-        UNIQUE (source_file_id, year_id, round, team_id_winner, team_id_loser)
+        UNIQUE (source_file_id, year_id, round, team_i_dwinner, team_i_dloser)
 );
 
 COMMENT ON TABLE raw_lahman.series_post IS
@@ -687,15 +770,15 @@ CREATE TABLE IF NOT EXISTS raw_lahman.home_games (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    year_key INT NOT NULL,
+    year_key TEXT,
     league_key TEXT,
-    team_key TEXT NOT NULL,
-    park_key TEXT NOT NULL,
-    span_first DATE,
-    span_last DATE,
-    games INT,
-    openings INT,
-    attendance BIGINT,
+    team_key TEXT,
+    park_key TEXT,
+    span_first TEXT,
+    span_last TEXT,
+    games TEXT,
+    openings TEXT,
+    attendance TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_home_games_unique
         UNIQUE (source_file_id, year_key, team_key, park_key)
@@ -713,12 +796,13 @@ CREATE TABLE IF NOT EXISTS raw_lahman.parks (
         REFERENCES meta.source_file(source_file_id)
         ON UPDATE RESTRICT
         ON DELETE SET NULL,
-    park_key TEXT NOT NULL,
-    park_name TEXT,
     park_alias TEXT,
+    park_key TEXT,
+    park_name TEXT,
     city TEXT,
     state TEXT,
     country TEXT,
+    id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT raw_lahman_parks_unique
         UNIQUE (source_file_id, park_key)
@@ -726,5 +810,30 @@ CREATE TABLE IF NOT EXISTS raw_lahman.parks (
 
 COMMENT ON TABLE raw_lahman.parks IS
     'Raw Lahman Parks table. Ballpark reference with name, alias, and location.';
+
+-- ---------------------------------------------------------------------------
+-- All-Star Selections
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS raw_lahman.allstar_full (
+    raw_lahman_allstar_full_id BIGSERIAL PRIMARY KEY,
+    source_file_id UUID
+        REFERENCES meta.source_file(source_file_id)
+        ON UPDATE RESTRICT
+        ON DELETE SET NULL,
+    player_id TEXT,
+    year_id TEXT,
+    game_num TEXT,
+    game_id TEXT,
+    team_id TEXT,
+    lg_id TEXT,
+    gp TEXT,
+    starting_pos TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT raw_lahman_allstar_full_unique
+        UNIQUE (source_file_id, player_id, year_id, game_num, game_id, team_id)
+);
+
+COMMENT ON TABLE raw_lahman.allstar_full IS
+    'Raw Lahman AllstarFull table. All-Star game selections with game numbers and starting positions.';
 
 COMMIT;
