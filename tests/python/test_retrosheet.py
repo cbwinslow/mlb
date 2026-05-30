@@ -248,13 +248,21 @@ class TestIngestSingleEventFile:
 
         ingester = RetrosheetIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        # Mock Chadwick
-        mock_chadwick = MagicMock()
-        mock_chadwick.games.return_value = []
+        # Mock the import inside the method
+        mock_chadwick_instance = MagicMock()
+        mock_chadwick_instance.event_file_to_dataframe.return_value = MagicMock(empty=True)
 
-        result = await ingester._ingest_single_event_file(
-            Path("/fake/path.EVN"), uuid.UUID("12345678-1234-5678-1234-567812345678"), mock_chadwick
-        )
+        def mock_import(name, *args, **kwargs):
+            if name == 'pychadwick.chadwick':
+                return MagicMock(Chadwick=MagicMock(return_value=mock_chadwick_instance))
+            return __import__(name, *args, **kwargs)
+
+        # Create Path outside the patch context to avoid mocking pathlib internals
+        event_path = Path("/fake/path.EVN")
+        with patch('builtins.__import__', side_effect=mock_import):
+            result = await ingester._ingest_single_event_file(
+                event_path, uuid.UUID("12345678-1234-5678-1234-567812345678")
+            )
 
         assert result.rows_processed == 0
 

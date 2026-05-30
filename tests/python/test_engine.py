@@ -106,10 +106,18 @@ class TestBulkLoadRawCsv:
     @pytest.mark.asyncio
     async def test_generates_correct_copy_sql(self, ingest_engine, mock_pool):
         """COPY SQL is generated correctly."""
+        mock_cursor = AsyncMock()
+        mock_cursor.copy = MagicMock()
+        mock_copy_ctx = MagicMock()
+        mock_copy_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_copy_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_cursor.copy.return_value = mock_copy_ctx
+
         mock_conn = AsyncMock()
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+        mock_conn.cursor = MagicMock(return_value=mock_cursor)
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [100]))
         mock_conn.commit = AsyncMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         # Create temp CSV file
         import tempfile
@@ -123,22 +131,28 @@ class TestBulkLoadRawCsv:
                 table_name="raw_statcast.pitch",
                 file_path=temp_path,
             )
-            # Verify execute was called with COPY command
-            assert mock_conn.execute.called
-            # Check that COPY was called (may be first or second call)
-            calls = [str(call) for call in mock_conn.execute.call_args_list]
-            copy_found = any("COPY raw_statcast.pitch" in str(call) for call in calls)
-            assert copy_found, f"COPY not found in calls: {calls}"
+            # Verify copy was called with COPY command
+            assert mock_cursor.copy.called
+            copy_sql = mock_cursor.copy.call_args[0][0]
+            assert "COPY raw_statcast.pitch" in copy_sql
         finally:
             temp_path.unlink()
 
     @pytest.mark.asyncio
     async def test_handles_column_list(self, ingest_engine, mock_pool):
         """Column list is included in COPY when provided."""
+        mock_cursor = AsyncMock()
+        mock_cursor.copy = MagicMock()
+        mock_copy_ctx = MagicMock()
+        mock_copy_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_copy_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_cursor.copy.return_value = mock_copy_ctx
+
         mock_conn = AsyncMock()
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+        mock_conn.cursor = MagicMock(return_value=mock_cursor)
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [50]))
         mock_conn.commit = AsyncMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         import tempfile
 
@@ -153,9 +167,9 @@ class TestBulkLoadRawCsv:
                 columns=["col1", "col2"],
             )
             # Check that COPY was called with column list
-            calls = [str(call) for call in mock_conn.execute.call_args_list]
-            copy_found = any("(col1, col2)" in str(call) for call in calls)
-            assert copy_found, f"Column list not found in calls: {calls}"
+            assert mock_cursor.copy.called
+            copy_sql = mock_cursor.copy.call_args[0][0]
+            assert "(col1, col2)" in copy_sql
         finally:
             temp_path.unlink()
 
