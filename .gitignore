@@ -175,8 +175,10 @@ plans/
 .kilo/plans/
 .testagent/
 
-# Downloaded data files (Lahman, Retrosheet, etc.) - binary/large files
+# Downloaded data files (Lahman, Retrosheet, Statcast, etc.) - binary/large files
 data/lahman/*
 !data/lahman/.gitkeep
 data/retrosheet/*
 !data/retrosheet/.gitkeep
+data/statcast/*
+!data/statcast/.gitkeep
