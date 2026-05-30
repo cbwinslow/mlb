@@ -1,4 +1,5 @@
 """Application settings using pydantic-settings."""
+
 from __future__ import annotations
 
 import enum

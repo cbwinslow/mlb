@@ -83,7 +83,9 @@ class TestLahmanIngesterValidate:
     """Tests for LahmanIngester.validate() method."""
 
     @pytest.mark.asyncio
-    async def test_validate_returns_true_when_table_exists(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_true_when_table_exists(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Validate returns True when people table exists."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -100,7 +102,9 @@ class TestLahmanIngesterValidate:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_validate_returns_false_when_table_missing(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_false_when_table_missing(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Validate returns False when people table does not exist."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -140,14 +144,18 @@ class TestLahmanIngesterIngest:
         with patch.object(
             LahmanIngester, "_ingest_table", new_callable=AsyncMock
         ) as mock_ingest_table:
-            mock_ingest_table.return_value = IngestResult(rows_processed=100, rows_inserted=100)
+            mock_ingest_table.return_value = IngestResult(
+                rows_processed=100, rows_inserted=100
+            )
             ingester = LahmanIngester(pool=mock_pool, workspace_id=workspace_id)
             result = await ingester.ingest(data_type="people")
 
         assert result.rows_processed == 100
 
     @pytest.mark.asyncio
-    async def test_ingest_marks_failed_on_exception(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_marks_failed_on_exception(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Ingestion marks run as failed when exception occurs."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)

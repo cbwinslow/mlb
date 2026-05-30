@@ -134,6 +134,12 @@ def ingest_lahman(
     database_url: str = typer.Option(
         ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
     ),
+    download: bool = typer.Option(
+        False,
+        "--download",
+        "-d",
+        help="Download Lahman CSV files from pybaseball before ingesting.",
+    ),
 ) -> None:
     """Ingest Lahman database tables.
 
@@ -149,8 +155,13 @@ def ingest_lahman(
     async def _run():
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = LahmanIngester(pool, workspace_id=None)
-            result = await ingester.ingest(season=2023)
-            console.print(f"[green]Lahman ingest complete: {result.rows_inserted} rows[/green]")
+            if download:
+                downloaded = await ingester.download()
+                console.print(f"[blue]Downloaded {downloaded} Lahman CSV files[/blue]")
+            result = await ingester.ingest()
+            console.print(
+                f"[green]Lahman ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -160,13 +171,22 @@ def ingest_retrosheet(
     database_url: str = typer.Option(
         ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
     ),
-    season: Optional[int] = typer.Option(
+    year: Optional[int] = typer.Option(
         None, "--season", "-s", help="Season to ingest (omit for all)."
     ),
+    download: bool = typer.Option(
+        False,
+        "--download",
+        "-d",
+        help="Download files from retrosheet.org before ingesting.",
+    ),
+    data_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="Data type: events, game_log, bio, rosters, batting, pitching, fielding, all."
+    ),
 ) -> None:
-    """Ingest Retrosheet event files.
+    """Ingest ALL Retrosheet data.
 
-    Establishes plate appearance blocks from event files.
+    Downloads and ingests event files, game logs, biographical data, rosters, and stats.
     """
     import asyncio
     from psycopg_pool import AsyncConnectionPool
@@ -178,8 +198,13 @@ def ingest_retrosheet(
     async def _run():
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = RetrosheetIngester(pool, workspace_id=None)
-            result = await ingester.ingest(season=season)
-            console.print(f"[green]Retrosheet ingest complete: {result.rows_inserted} rows[/green]")
+            if download:
+                downloaded = await ingester.download(year=year)
+                console.print(f"[blue]Downloaded {downloaded} Retrosheet files[/blue]")
+            result = await ingester.ingest(year=year, data_type=data_type)
+            console.print(
+                f"[green]Retrosheet ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -199,16 +224,18 @@ def ingest_mlbapi(
     """
     import asyncio
     from psycopg_pool import AsyncConnectionPool
-    from baseball.ingestion.lahman import LahmanIngester
+    from baseball.ingestion.mlbam import MLBAMIngester
 
     # Convert SQLAlchemy URL to psycopg format
     pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     async def _run():
         async with AsyncConnectionPool(pg_url) as pool:
-            ingester = LahmanIngester(pool, workspace_id=None)
+            ingester = MLBAMIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season)
-            console.print(f"[green]MLB API ingest complete: {result.rows_inserted} rows[/green]")
+            console.print(
+                f"[green]MLB API ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -219,10 +246,19 @@ def ingest_statcast(
         ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
     ),
     start_date: Optional[str] = typer.Option(
-        None, "--start", "-S", help="Start date (YYYY-MM-DD)."
+        None, "--start", help="Start date (YYYY-MM-DD)."
     ),
     end_date: Optional[str] = typer.Option(
-        None, "--end", "-E", help="End date (YYYY-MM-DD)."
+        None, "--end", help="End date (YYYY-MM-DD)."
+    ),
+    season: Optional[int] = typer.Option(
+        None, "--season", "-s", help="Season year (alternative to --start/--end)."
+    ),
+    all_seasons: bool = typer.Option(
+        False, "--all", help="Ingest all available Statcast data (2015-present)."
+    ),
+    process_to_core: bool = typer.Option(
+        False, "--process-to-core", help="Process raw data to core tables after ingest."
     ),
 ) -> None:
     """Load Statcast pitch telemetry.
@@ -234,20 +270,28 @@ def ingest_statcast(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.statcast import StatcastIngester
 
-    # Convert SQLAlchemy URL to psycopg format
     pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     async def _run():
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = StatcastIngester(pool, workspace_id=None)
-            if start_date and end_date:
+            if all_seasons:
+                from baseball.ingestion.statcast import StatcastFullIngester
+                full_ingester = StatcastFullIngester(pool, workspace_id=None)
+                result = await full_ingester.ingest_all(process_to_core=process_to_core)
+            elif season:
+                result = await ingester.ingest(season=season)
+            elif start_date and end_date:
                 result = await ingester.ingest(
                     start_date=date.fromisoformat(start_date),
                     end_date=date.fromisoformat(end_date),
+                    process_to_core=process_to_core,
                 )
             else:
-                result = await ingester.ingest(season=2023)
-            console.print(f"[green]Statcast ingest complete: {result.rows_inserted} rows[/green]")
+                result = await ingester.ingest(season=2023, process_to_core=process_to_core)
+            console.print(
+                f"[green]Statcast ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -279,7 +323,9 @@ def ingest_fangraphs(
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = FanGraphsIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season, data_type=data_type)
-            console.print(f"[green]FanGraphs ingest complete: {result.rows_inserted} rows[/green]")
+            console.print(
+                f"[green]FanGraphs ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -311,7 +357,9 @@ def ingest_bref(
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = BRefIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season, data_type=data_type)
-            console.print(f"[green]BRef ingest complete: {result.rows_inserted} rows[/green]")
+            console.print(
+                f"[green]BRef ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -343,7 +391,9 @@ def ingest_espn(
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = ESPNIngester(pool, workspace_id=None)
             result = await ingester.ingest(season=season, data_type=data_type)
-            console.print(f"[green]ESPN ingest complete: {result.rows_inserted} rows[/green]")
+            console.print(
+                f"[green]ESPN ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -379,7 +429,9 @@ def ingest_odds(
                 date_val=date.fromisoformat(date_val) if date_val else None,
                 sport=sport,
             )
-            console.print(f"[green]Odds ingest complete: {result.rows_inserted} rows[/green]")
+            console.print(
+                f"[green]Odds ingest complete: {result.rows_inserted} rows[/green]"
+            )
 
     asyncio.run(_run())
 
@@ -471,7 +523,9 @@ def vector_init(
 
     if backend == "pgvector":
         try:
-            manager = VectorStoreManager(pgvector_connection_str=str(settings.database.url))
+            manager = VectorStoreManager(
+                pgvector_connection_str=str(settings.database.url)
+            )
             # Accessing pgvector_store triggers initialization
             _ = manager.pgvector_store
             console.print("[green]PgVector initialized successfully.[/green]")
@@ -529,7 +583,9 @@ def embed_players_cmd(
 
     if dry_run:
         players = fetch_players_for_embedding(database_url)
-        console.print(f"[yellow]DRY RUN — {len(players)} players would be embedded[/yellow]")
+        console.print(
+            f"[yellow]DRY RUN — {len(players)} players would be embedded[/yellow]"
+        )
         for p in players[:10]:
             text = make_player_text(
                 p["full_name"],
@@ -596,7 +652,9 @@ def embed_games_cmd(
 
     if dry_run:
         games = fetch_games_for_embedding(database_url, season)
-        console.print(f"[yellow]DRY RUN — {len(games)} games would be embedded[/yellow]")
+        console.print(
+            f"[yellow]DRY RUN — {len(games)} games would be embedded[/yellow]"
+        )
         for g in games[:10]:
             text = make_game_text(
                 g["home_team"],

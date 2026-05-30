@@ -85,7 +85,9 @@ class TestMLBAMIngesterValidate:
     """Tests for MLBAMIngester.validate method."""
 
     @pytest.mark.asyncio
-    async def test_validate_returns_true_when_table_exists(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_true_when_table_exists(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Returns True when raw_mlbapi.payload table exists."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -102,7 +104,9 @@ class TestMLBAMIngesterValidate:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_validate_returns_false_when_table_missing(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_false_when_table_missing(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Returns False when raw_mlbapi.payload table does not exist."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -141,15 +145,21 @@ class TestMLBAMIngesterIngest:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_all", new_callable=AsyncMock) as mock_ingest_all:
-            mock_ingest_all.return_value = IngestResult(rows_processed=100, rows_inserted=100)
+        with patch.object(
+            ingester, "_ingest_all", new_callable=AsyncMock
+        ) as mock_ingest_all:
+            mock_ingest_all.return_value = IngestResult(
+                rows_processed=100, rows_inserted=100
+            )
             result = await ingester.ingest()
 
         assert result.rows_processed == 100
         assert result.rows_inserted == 100
 
     @pytest.mark.asyncio
-    async def test_ingest_with_schedule_endpoint(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_with_schedule_endpoint(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Ingestion with schedule endpoint calls _ingest_schedule."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -162,9 +172,15 @@ class TestMLBAMIngesterIngest:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_schedule", new_callable=AsyncMock) as mock_schedule:
-            mock_schedule.return_value = IngestResult(rows_processed=50, rows_inserted=50)
-            result = await ingester.ingest(endpoint="schedule", date_val=date(2023, 4, 15))
+        with patch.object(
+            ingester, "_ingest_schedule", new_callable=AsyncMock
+        ) as mock_schedule:
+            mock_schedule.return_value = IngestResult(
+                rows_processed=50, rows_inserted=50
+            )
+            result = await ingester.ingest(
+                endpoint="schedule", date_val=date(2023, 4, 15)
+            )
 
         mock_schedule.assert_called_once()
 
@@ -182,14 +198,18 @@ class TestMLBAMIngesterIngest:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_teams", new_callable=AsyncMock) as mock_teams:
+        with patch.object(
+            ingester, "_ingest_teams", new_callable=AsyncMock
+        ) as mock_teams:
             mock_teams.return_value = IngestResult(rows_processed=30, rows_inserted=30)
             result = await ingester.ingest(endpoint="teams")
 
         mock_teams.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ingest_with_people_endpoint(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_with_people_endpoint(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Ingestion with people endpoint calls _ingest_people."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -202,14 +222,20 @@ class TestMLBAMIngesterIngest:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_people", new_callable=AsyncMock) as mock_people:
-            mock_people.return_value = IngestResult(rows_processed=1000, rows_inserted=1000)
+        with patch.object(
+            ingester, "_ingest_people", new_callable=AsyncMock
+        ) as mock_people:
+            mock_people.return_value = IngestResult(
+                rows_processed=1000, rows_inserted=1000
+            )
             result = await ingester.ingest(endpoint="people")
 
         mock_people.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ingest_marks_failed_on_exception(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_marks_failed_on_exception(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Ingestion marks run as failed when exception occurs."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -222,7 +248,9 @@ class TestMLBAMIngesterIngest:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_all", side_effect=ValueError("Test error")):
+        with patch.object(
+            ingester, "_ingest_all", side_effect=ValueError("Test error")
+        ):
             result = await ingester.ingest()
 
         assert result.errors == 1
@@ -237,7 +265,9 @@ class TestIngestSchedule:
     """Tests for MLBAMIngester._ingest_schedule method."""
 
     @pytest.mark.asyncio
-    async def test_ingest_schedule_fetches_data(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_schedule_fetches_data(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """_ingest_schedule fetches and inserts schedule data."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -250,7 +280,9 @@ class TestIngestSchedule:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch("baseball.ingestion.mlbam.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
+        with patch(
+            "baseball.ingestion.mlbam.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
             mock_fetch.return_value = {
                 "dates": [{"games": [{"gamePk": 1, "gameType": "R"}]}]
             }
@@ -284,7 +316,9 @@ class TestIngestTeams:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch("baseball.ingestion.mlbam.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
+        with patch(
+            "baseball.ingestion.mlbam.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
             mock_fetch.return_value = {
                 "teams": [{"id": 1, "name": "Angels", "abbreviation": "LAA"}]
             }
@@ -317,10 +351,10 @@ class TestIngestPeople:
 
         ingester = MLBAMIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch("baseball.ingestion.mlbam.HistoricalLoaderFactory.fetch_paginated_json") as mock_fetch:
-            mock_fetch.return_value = [
-                {"id": 1, "fullName": "Mike Trout"}
-            ]
+        with patch(
+            "baseball.ingestion.mlbam.HistoricalLoaderFactory.fetch_paginated_json"
+        ) as mock_fetch:
+            mock_fetch.return_value = [{"id": 1, "fullName": "Mike Trout"}]
             result = await ingester._ingest_people(
                 uuid.UUID("12345678-1234-5678-1234-567812345678"),
             )

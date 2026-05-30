@@ -15,6 +15,7 @@ from uuid import UUID
 from psycopg_pool import AsyncConnectionPool
 
 from baseball.ingestion.base import BaseIngester, IngestResult
+from baseball.ingestion.engine import IngestEngine
 from baseball.ingestion.loaders import HistoricalLoaderFactory
 
 log = logging.getLogger(__name__)
@@ -34,12 +35,13 @@ class FanGraphsIngester(BaseIngester):
     ):
         super().__init__(pool, workspace_id, "fangraphs")
         self.data_dir = data_dir or Path("data/fangraphs")
+        self.engine = IngestEngine(pool)
 
     async def validate(self) -> bool:
         """Validate that required tables exist."""
         async with self.pool.connection() as conn:
             result = await conn.execute(
-                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_fangraphs' AND tablename = 'batter_splits')"
+                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'raw_fangraphs' AND tablename = 'batting_standard')"
             )
             return (await result.fetchone())[0]
 
@@ -95,7 +97,9 @@ class FanGraphsIngester(BaseIngester):
         result.duration_seconds = time.time() - start_time
         return result
 
-    async def _ingest_batting(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_batting(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest batting stats."""
         result = IngestResult()
 
@@ -116,10 +120,14 @@ class FanGraphsIngester(BaseIngester):
         df.to_csv(csv_path, index=False)
 
         # Bulk load
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.batting", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.batting_standard", csv_path
+        )
         return result
 
-    async def _ingest_pitching(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_pitching(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest pitching stats."""
         result = IngestResult()
 
@@ -138,10 +146,14 @@ class FanGraphsIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.pitching", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.pitching_standard", csv_path
+        )
         return result
 
-    async def _ingest_fielding(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_fielding(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest fielding stats."""
         result = IngestResult()
 
@@ -160,14 +172,19 @@ class FanGraphsIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.fielding", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.fielding_standard", csv_path
+        )
         return result
 
-    async def _ingest_batter_splits(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_batter_splits(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest batter splits data."""
         result = IngestResult()
 
         try:
+            # Try to use FanGraphs split endpoints if available in pybaseball
             from pybaseball import batting_stats_bref
         except ImportError:
             raise ImportError(
@@ -175,6 +192,8 @@ class FanGraphsIngester(BaseIngester):
                 "Install with: pip install pybaseball"
             )
 
+        # Note: pybaseball's split functions may require different parameters
+        # For now, using batting_stats_bref which provides split-like data
         df = batting_stats_bref(season or 2023)
         result.rows_processed = len(df)
 
@@ -182,10 +201,14 @@ class FanGraphsIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.batter_splits", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.batter_splits", csv_path
+        )
         return result
 
-    async def _ingest_pitcher_splits(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_pitcher_splits(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest pitcher splits data."""
         result = IngestResult()
 
@@ -204,10 +227,14 @@ class FanGraphsIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.pitcher_splits", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.pitcher_splits", csv_path
+        )
         return result
 
-    async def _ingest_baserunning(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_baserunning(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest baserunning stats using fg_batting_data with baserunning columns."""
         result = IngestResult()
 
@@ -230,10 +257,14 @@ class FanGraphsIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.baserunning", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.baserunning", csv_path
+        )
         return result
 
-    async def _ingest_plate_discipline(self, season: Optional[int], ingest_run_id: UUID) -> IngestResult:
+    async def _ingest_plate_discipline(
+        self, season: Optional[int], ingest_run_id: UUID
+    ) -> IngestResult:
         """Ingest plate discipline stats using fg_batting_data with plate discipline columns."""
         result = IngestResult()
 
@@ -248,7 +279,18 @@ class FanGraphsIngester(BaseIngester):
         # Use fg_batting_data with plate discipline stat columns
         df = fg_batting_data(
             start_season=season or 2023,
-            stat_columns=["O-Swing%", "Z-Swing%", "Swing%", "O-Contact%", "Z-Contact%", "Contact%", "Zone%", "F-Strike%", "BB%", "K%"],
+            stat_columns=[
+                "O-Swing%",
+                "Z-Swing%",
+                "Swing%",
+                "O-Contact%",
+                "Z-Contact%",
+                "Contact%",
+                "Zone%",
+                "F-Strike%",
+                "BB%",
+                "K%",
+            ],
         )
         result.rows_processed = len(df)
 
@@ -256,7 +298,9 @@ class FanGraphsIngester(BaseIngester):
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False)
 
-        result.rows_inserted = await self._bulk_load_csv("raw_fangraphs.plate_discipline", csv_path)
+        result.rows_inserted = await self._bulk_load_csv(
+            "raw_fangraphs.plate_discipline", csv_path
+        )
         return result
 
     async def _ingest_season(self, season: int, ingest_run_id: UUID) -> IngestResult:
@@ -264,9 +308,13 @@ class FanGraphsIngester(BaseIngester):
         result = IngestResult()
 
         for data_type in [
-            "batting", "pitching", "fielding",
-            "batter_splits", "pitcher_splits",
-            "baserunning", "plate_discipline",
+            "batting",
+            "pitching",
+            "fielding",
+            "batter_splits",
+            "pitcher_splits",
+            "baserunning",
+            "plate_discipline",
         ]:
             type_result = await self.ingest(season=season, data_type=data_type)
             result.rows_processed += type_result.rows_processed
@@ -280,9 +328,13 @@ class FanGraphsIngester(BaseIngester):
 
         # Ingest current season data
         for data_type in [
-            "batting", "pitching", "fielding",
-            "batter_splits", "pitcher_splits",
-            "baserunning", "plate_discipline",
+            "batting",
+            "pitching",
+            "fielding",
+            "batter_splits",
+            "pitcher_splits",
+            "baserunning",
+            "plate_discipline",
         ]:
             type_result = await self.ingest(data_type=data_type)
             result.rows_processed += type_result.rows_processed
@@ -291,6 +343,8 @@ class FanGraphsIngester(BaseIngester):
         return result
 
     async def _bulk_load_csv(self, table_name: str, csv_path: Path) -> int:
-        """Bulk load CSV into a table using COPY."""
-        # This will be implemented via IngestEngine in production
-        return 0
+        """Bulk load CSV into a table using COPY.
+
+        Delegates to IngestEngine for actual loading.
+        """
+        return await self.engine.bulk_load_raw_csv(table_name, csv_path)

@@ -56,6 +56,7 @@ class OpenAIEmbeddingProvider:
                 raise ValueError("OpenAI API key required for embedding generation")
             try:
                 from openai import OpenAI
+
                 self._client = OpenAI(api_key=self.api_key)
             except ImportError as exc:
                 raise ImportError(
@@ -250,7 +251,9 @@ def write_embeddings(
     if on_conflict == "do_nothing":
         conflict_sql = "ON CONFLICT DO NOTHING"
     else:
-        conflict_sql = "ON CONFLICT DO UPDATE SET embedding_vector = EXCLUDED.embedding_vector"
+        conflict_sql = (
+            "ON CONFLICT DO UPDATE SET embedding_vector = EXCLUDED.embedding_vector"
+        )
 
     sql = f"""
         INSERT INTO raw_vector.embeddings
@@ -304,6 +307,7 @@ def embed_players(
     if provider is None:
         try:
             from baseball.settings import get_settings
+
             settings = get_settings()
             provider = OpenAIEmbeddingProvider(
                 api_key=settings.vector.openai_api_key,
@@ -379,6 +383,7 @@ def embed_games(
     if provider is None:
         try:
             from baseball.settings import get_settings
+
             settings = get_settings()
             provider = OpenAIEmbeddingProvider(
                 api_key=settings.vector.openai_api_key,

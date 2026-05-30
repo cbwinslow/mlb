@@ -234,8 +234,12 @@ class TestWriteDocuments:
             mock_store_class.return_value = mock_store
 
             docs = [
-                Document(content="Player 1", embedding=sample_embedding, meta={"id": "1"}),
-                Document(content="Player 2", embedding=sample_embedding, meta={"id": "2"}),
+                Document(
+                    content="Player 1", embedding=sample_embedding, meta={"id": "1"}
+                ),
+                Document(
+                    content="Player 2", embedding=sample_embedding, meta={"id": "2"}
+                ),
             ]
 
             count = manager.write_documents(docs, backend="pgvector")
@@ -256,7 +260,9 @@ class TestWriteDocuments:
             mock_store_class.return_value = mock_store
 
             docs = [
-                Document(content="Game 1", embedding=sample_embedding, meta={"id": "1"}),
+                Document(
+                    content="Game 1", embedding=sample_embedding, meta={"id": "1"}
+                ),
             ]
 
             count = manager.write_documents(docs, backend="qdrant", collection="games")
@@ -283,14 +289,18 @@ class TestQuery:
         ) as mock_store_class:
             mock_store = MagicMock()
             mock_store.query_by_embedding.return_value = [
-                Document(content="Result 1", embedding=sample_embedding, meta={"id": "1"}),
+                Document(
+                    content="Result 1", embedding=sample_embedding, meta={"id": "1"}
+                ),
             ]
             mock_store_class.return_value = mock_store
 
             results = manager.query(sample_embedding, backend="pgvector", top_k=5)
 
             assert len(results) == 1
-            mock_store.query_by_embedding.assert_called_once_with(query=sample_embedding, top_k=5)
+            mock_store.query_by_embedding.assert_called_once_with(
+                query=sample_embedding, top_k=5
+            )
 
     def test_query_qdrant_with_collection(self, sample_embedding):
         """query sets collection name for Qdrant."""

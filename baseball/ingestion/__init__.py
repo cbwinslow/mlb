@@ -8,12 +8,14 @@ Provides ingesters for all baseball data sources:
 - BRefIngester: Baseball Reference data
 - ESPNIngester: ESPN schedule and scores
 - OddsIngester: Betting odds data
+- LahmanIngester: Lahman database CSV files
 """
 
 from baseball.ingestion.base import BaseIngester, IngestResult
 from baseball.ingestion.bref import BRefIngester
 from baseball.ingestion.espn import ESPNIngester
 from baseball.ingestion.fangraphs import FanGraphsIngester
+from baseball.ingestion.lahman import LahmanIngester
 from baseball.ingestion.mlbam import MLBAMIngester
 from baseball.ingestion.odds import OddsIngester
 from baseball.ingestion.retrosheet import RetrosheetIngester
@@ -29,4 +31,5 @@ __all__ = [
     "BRefIngester",
     "ESPNIngester",
     "OddsIngester",
+    "LahmanIngester",
 ]

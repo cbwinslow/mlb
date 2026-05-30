@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-28 (All raw layer tables complete; Issues #9, #10, #11, #12 closed)
+> Last updated: 2026-05-30 (pybaseball mapping analysis complete - added statcast advanced + mlbapi team stats tables)
 
 ---
 
@@ -63,13 +63,16 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 |------|-----------|--------|
 | `sql/040_raw/001_raw_retrosheet.sql` | `raw_retrosheet` | ✅ Complete |
 | `sql/040_raw/002_raw_chadwick.sql` | `raw_chadwick` | ✅ Complete (96-field cwevent + cwgame + cwsub) — 2026-05-19 |
-| `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | ✅ Complete (110 cols) — 2026-05-19 |
+| `sql/040_raw/003_raw_statcast.sql` | `raw_statcast` | ✅ Complete (118 cols) — 2026-05-29 |
+| `sql/040_raw/003_raw_statcast_alter.sql` | `raw_statcast.pitch` additions | ✅ Added 2026-05-29 (bat tracking, win expectancy, age, days-until-next-game fields) |
 | `sql/040_raw/004_raw_mlbapi.sql` | `raw_mlbapi` | ✅ Complete (request, payload, schedule_date, schedule_game, live_play, live_pitch, person, team, meta_value) |
 | `sql/040_raw/004_raw_mlbapi_migration_v2.sql` | `raw_mlbapi` | ✅ Added 2026-05-28 (boxscore_batting_line, boxscore_pitching_line, venue) |
 | `sql/040_raw/005_raw_lahman.sql` | `raw_lahman` | ✅ Complete (all 21 tables) — 2026-05-19 |
 | `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | ✅ Complete |
 | `sql/040_raw/006_raw_web_sources_migration_v2.sql` | Additional typed tables for all web sources | ✅ Added 2026-05-28 (batter/pitcher splits, baserunning, plate_discipline, schedule, scores, market_lines, boxscore_batting/pitching, player_news, line_movement) |
 | `sql/040_raw/007_raw_vector.sql` | `raw_vector` | ✅ Added 2026-05-26 (embeddings, metadata, qdrant collections) |
+| `sql/040_raw/008_raw_statcast_advanced.sql` | `raw_statcast` | ✅ Added 2026-05-30 (batter/pitcher season stats, arsenal, sprint speed, OAA, percentiles) |
+| `sql/040_raw/009_raw_mlbapi_team_stats.sql` | `raw_mlbapi` | ✅ Added 2026-05-30 (standings, team batting/pitching stats, league stats, draft) |
 
 ---
 
@@ -116,6 +119,7 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/060_core/002_core_gameplay.sql` | `core.games`, `core.plate_appearances`, `core.pitches` (decoupled gameplay tables) | ✅ Complete |
 | `sql/060_core/003_core_relationships.sql` | `core.player_team_season`, `core.game_official`, source map tables | ✅ Complete |
 | `sql/060_core/005_serving_views.sql` | Serving views (including `core.v_unified_plate_appearances`) | ✅ Complete |
+| `sql/060_core/006_identity_resolved_views.sql` | Resolved views joining raw data through identity bridges (`v_player_identity_resolved`, `v_statcast_events_resolved`) | ✅ Added 2026-05-29 |
 
 ---
 
@@ -170,6 +174,12 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] **Step 13:** Audit `stg.player_identity` for all 5 cross-source keys
     - Added unique partial indexes for bbref_player_id and fangraphs_player_id
     - File: `sql/090_constraints_indexes/005_staging_indexes.sql`
+### Completed ✅
+- [x] **Pybaseball data mapping analysis** - Identified 18+ additional endpoints beyond basic statcast
+  - Created docs/pybaseball-data-mapping.md with complete function inventory
+  - Added sql/040_raw/008_raw_statcast_advanced.sql (7 tables: batter/pitcher season stats, arsenal, sprint speed, OAA, percentiles)
+  - Added sql/040_raw/009_raw_mlbapi_team_stats.sql (5 tables: standings, team stats, league stats, draft)
+  - Total 12 new tables mapped for player-level Statcast aggregations and team/league stats
 - [x] **Issue #17:** Create ingestion Python components
     - Files: `baseball/ingestion/orchestrator.py`, `baseball/ingestion/loaders.py`, `baseball/ingestion/engine.py`
     - Added ingest commands to CLI: `baseball ingest lahman`, `baseball ingest retrosheet`, etc.
@@ -203,8 +213,27 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] **Pool API Migration:** Migrated all ingestion modules from pool.acquire() to pool.connection() API for psycopg compatibility. All 441 tests pass.
 - [x] **LahmanIngester:** Created dedicated LahmanIngester class and fixed baseball ingest lahman CLI command.
 
-### Outstanding 🔲
-- [ ] **Next:** None - all tasks complete. Ready for staging layer enhancements or ML feature development.
+### Completed ✅
+- [x] **Player identity resolved views:** Created `core.v_player_identity_resolved`, `core.v_team_identity_resolved`, `core.v_statcast_events_resolved` to expose cross-source IDs side-by-side for unified queries (matching `baseball.players_xref` pattern from docs/player-xref.md)
+- [x] **Fix IngestEngine.bulk_load_raw_csv:** Changed from `conn.execute(sql, binary=True)` to psycopg v3's correct `cursor.copy()` context manager pattern
+- [x] **Fixed orchestrator.py track_run:** Added null check for run_id before completion
+- [x] **Fixed base.py _create_request_id:** Changed to async context manager pattern for psycopg v3 compatibility
+
+### Completed ✅
+- [x] **Step 14:** Test Statcast ingestion end-to-end, implement proper team/venue resolution in _process_to_core
+    - Added `estimated_obp` column to `raw_statcast.pitch`
+    - Added 16 additional tracking fields in `sql/040_raw/003_raw_statcast_alter.sql` (home/bat score diff, win exp, age, days-until-next-game, attack angle/direction/tilt, intercept coordinates)
+    - Added `statcast_team_id` column to `core.team` for direct Statcast team code lookups
+    - Updated `util.ingest_statcast_play()` to accept additional tracking fields for core.pitches
+    - Fixed `_process_to_core` to use `core.team.statcast_team_id` for team resolution
+    - Added `--all` and `--process-to-core` flags to CLI `baseball ingest statcast` command
+    - Created `StatcastFullIngester` class for full historical backfill (2015-present)
+
+### Completed ✅
+- [x] **Lahman database ingestion** - Loaded 706,466 rows across 27 tables
+    - Tables: people (24,270), batting (128,598), pitching (57,630), fielding (174,332), teams (3,614), salaries (26,428), and 21 other tables
+    - Data source: `lahman_1871-2025_csv.zip` extracted to `data/lahman/`
+    - CLI: `baseball ingest lahman` command working
 
 ### Completed ✅
 - [x] **Issue #10:** Add typed tables to `raw_mlbapi` for boxscore and venue data

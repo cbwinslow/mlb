@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS stg.team_identity (
     league_code TEXT,
     first_year INT,
     last_year INT,
+    statcast_team_id TEXT,                  -- MLB codes like NYY, LAD (vs retrosheet NYA, LAN)
     identity_confidence_score NUMERIC(6,3),
     identity_source TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

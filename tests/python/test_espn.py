@@ -73,7 +73,10 @@ class TestESPNIngesterInit:
     def test_base_url_is_set(self, mock_pool, workspace_id):
         """BASE_URL is set correctly."""
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
-        assert ingester.BASE_URL == "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb"
+        assert (
+            ingester.BASE_URL
+            == "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +88,9 @@ class TestESPNIngesterValidate:
     """Tests for ESPNIngester.validate method."""
 
     @pytest.mark.asyncio
-    async def test_validate_returns_true_when_table_exists(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_true_when_table_exists(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Returns True when raw_espn.schedule table exists."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -102,7 +107,9 @@ class TestESPNIngesterValidate:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_validate_returns_false_when_table_missing(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_false_when_table_missing(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Returns False when raw_espn.schedule table does not exist."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -141,8 +148,12 @@ class TestESPNIngesterIngest:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_all", new_callable=AsyncMock) as mock_ingest_all:
-            mock_ingest_all.return_value = IngestResult(rows_processed=100, rows_inserted=100)
+        with patch.object(
+            ingester, "_ingest_all", new_callable=AsyncMock
+        ) as mock_ingest_all:
+            mock_ingest_all.return_value = IngestResult(
+                rows_processed=100, rows_inserted=100
+            )
             result = await ingester.ingest()
 
         assert result.rows_processed == 100
@@ -162,8 +173,12 @@ class TestESPNIngesterIngest:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_schedule", new_callable=AsyncMock) as mock_schedule:
-            mock_schedule.return_value = IngestResult(rows_processed=30, rows_inserted=30)
+        with patch.object(
+            ingester, "_ingest_schedule", new_callable=AsyncMock
+        ) as mock_schedule:
+            mock_schedule.return_value = IngestResult(
+                rows_processed=30, rows_inserted=30
+            )
             result = await ingester.ingest(season=2023, data_type="schedule")
 
         mock_schedule.assert_called_once()
@@ -182,9 +197,13 @@ class TestESPNIngesterIngest:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_scores", new_callable=AsyncMock) as mock_scores:
+        with patch.object(
+            ingester, "_ingest_scores", new_callable=AsyncMock
+        ) as mock_scores:
             mock_scores.return_value = IngestResult(rows_processed=15, rows_inserted=15)
-            result = await ingester.ingest(date_val=date(2023, 4, 15), data_type="scores")
+            result = await ingester.ingest(
+                date_val=date(2023, 4, 15), data_type="scores"
+            )
 
         mock_scores.assert_called_once()
 
@@ -202,14 +221,20 @@ class TestESPNIngesterIngest:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_standings", new_callable=AsyncMock) as mock_standings:
-            mock_standings.return_value = IngestResult(rows_processed=1, rows_inserted=1)
+        with patch.object(
+            ingester, "_ingest_standings", new_callable=AsyncMock
+        ) as mock_standings:
+            mock_standings.return_value = IngestResult(
+                rows_processed=1, rows_inserted=1
+            )
             result = await ingester.ingest(season=2023, data_type="standings")
 
         mock_standings.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ingest_marks_failed_on_exception(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_marks_failed_on_exception(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Ingestion marks run as failed when exception occurs."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -222,7 +247,9 @@ class TestESPNIngesterIngest:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_all", side_effect=ValueError("Test error")):
+        with patch.object(
+            ingester, "_ingest_all", side_effect=ValueError("Test error")
+        ):
             result = await ingester.ingest()
 
         assert result.errors == 1
@@ -237,7 +264,9 @@ class TestIngestSchedule:
     """Tests for ESPNIngester._ingest_schedule method."""
 
     @pytest.mark.asyncio
-    async def test_ingest_schedule_fetches_teams(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_schedule_fetches_teams(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """_ingest_schedule fetches teams and inserts schedule data."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -250,7 +279,9 @@ class TestIngestSchedule:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch("baseball.ingestion.espn.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
+        with patch(
+            "baseball.ingestion.espn.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
             mock_fetch.return_value = {
                 "teams": [{"id": 1, "name": "Angels", "schedule": {"games": []}}]
             }
@@ -271,7 +302,9 @@ class TestIngestScores:
     """Tests for ESPNIngester._ingest_scores method."""
 
     @pytest.mark.asyncio
-    async def test_ingest_scores_fetches_events(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_scores_fetches_events(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """_ingest_scores fetches events and inserts score data."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -284,10 +317,10 @@ class TestIngestScores:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch("baseball.ingestion.espn.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
-            mock_fetch.return_value = {
-                "events": [{"id": "1", "competitions": []}]
-            }
+        with patch(
+            "baseball.ingestion.espn.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
+            mock_fetch.return_value = {"events": [{"id": "1", "competitions": []}]}
             result = await ingester._ingest_scores(
                 date(2023, 4, 15),
                 uuid.UUID("12345678-1234-5678-1234-567812345678"),
@@ -305,7 +338,9 @@ class TestIngestStandings:
     """Tests for ESPNIngester._ingest_standings method."""
 
     @pytest.mark.asyncio
-    async def test_ingest_standings_fetches_data(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_standings_fetches_data(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """_ingest_standings fetches and inserts standings data."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -318,10 +353,10 @@ class TestIngestStandings:
 
         ingester = ESPNIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch("baseball.ingestion.espn.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
-            mock_fetch.return_value = {
-                "standings": {"groups": []}
-            }
+        with patch(
+            "baseball.ingestion.espn.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
+            mock_fetch.return_value = {"standings": {"groups": []}}
             result = await ingester._ingest_standings(
                 2023,
                 uuid.UUID("12345678-1234-5678-1234-567812345678"),

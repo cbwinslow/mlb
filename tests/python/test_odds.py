@@ -72,7 +72,9 @@ class TestOddsIngesterInit:
 
     def test_api_key_from_constructor(self, mock_pool, workspace_id):
         """API key is set from constructor."""
-        ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id, api_key="test-api-key")
+        ingester = OddsIngester(
+            pool=mock_pool, workspace_id=workspace_id, api_key="test-api-key"
+        )
         assert ingester.api_key == "test-api-key"
 
     def test_api_key_defaults_to_none(self, mock_pool, workspace_id):
@@ -90,7 +92,9 @@ class TestOddsIngesterValidate:
     """Tests for OddsIngester.validate method."""
 
     @pytest.mark.asyncio
-    async def test_validate_returns_true_when_table_exists(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_true_when_table_exists(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Returns True when raw_odds.market_lines table exists."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -107,7 +111,9 @@ class TestOddsIngesterValidate:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_validate_returns_false_when_table_missing(self, mock_pool, mock_conn, workspace_id):
+    async def test_validate_returns_false_when_table_missing(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Returns False when raw_odds.market_lines table does not exist."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -146,8 +152,12 @@ class TestOddsIngesterIngest:
 
         ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_all", new_callable=AsyncMock) as mock_ingest_all:
-            mock_ingest_all.return_value = IngestResult(rows_processed=100, rows_inserted=100)
+        with patch.object(
+            ingester, "_ingest_all", new_callable=AsyncMock
+        ) as mock_ingest_all:
+            mock_ingest_all.return_value = IngestResult(
+                rows_processed=100, rows_inserted=100
+            )
             result = await ingester.ingest()
 
         assert result.rows_processed == 100
@@ -167,7 +177,9 @@ class TestOddsIngesterIngest:
 
         ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_date", new_callable=AsyncMock) as mock_date:
+        with patch.object(
+            ingester, "_ingest_date", new_callable=AsyncMock
+        ) as mock_date:
             mock_date.return_value = IngestResult(rows_processed=50, rows_inserted=50)
             result = await ingester.ingest(date_val=date(2023, 4, 15))
 
@@ -187,14 +199,20 @@ class TestOddsIngesterIngest:
 
         ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_season", new_callable=AsyncMock) as mock_season:
-            mock_season.return_value = IngestResult(rows_processed=500, rows_inserted=500)
+        with patch.object(
+            ingester, "_ingest_season", new_callable=AsyncMock
+        ) as mock_season:
+            mock_season.return_value = IngestResult(
+                rows_processed=500, rows_inserted=500
+            )
             result = await ingester.ingest(season=2023)
 
         mock_season.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ingest_marks_failed_on_exception(self, mock_pool, mock_conn, workspace_id):
+    async def test_ingest_marks_failed_on_exception(
+        self, mock_pool, mock_conn, workspace_id
+    ):
         """Ingestion marks run as failed when exception occurs."""
         mock_acquire_ctx = MagicMock()
         mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -207,7 +225,9 @@ class TestOddsIngesterIngest:
 
         ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id)
 
-        with patch.object(ingester, "_ingest_all", side_effect=ValueError("Test error")):
+        with patch.object(
+            ingester, "_ingest_all", side_effect=ValueError("Test error")
+        ):
             result = await ingester.ingest()
 
         assert result.errors == 1
@@ -229,9 +249,13 @@ class TestIngestDate:
         mock_acquire_ctx.__aexit__ = AsyncMock(return_value=None)
         mock_pool.connection.return_value = mock_acquire_ctx
 
-        ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id, api_key="test-key")
+        ingester = OddsIngester(
+            pool=mock_pool, workspace_id=workspace_id, api_key="test-key"
+        )
 
-        with patch("baseball.ingestion.odds.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
+        with patch(
+            "baseball.ingestion.odds.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
             mock_fetch.return_value = [
                 {"id": "1", "sport": "baseball", "commence_time": "2023-04-15T19:00Z"}
             ]
@@ -246,9 +270,13 @@ class TestIngestDate:
     @pytest.mark.asyncio
     async def test_ingest_date_handles_empty_response(self, mock_pool, workspace_id):
         """_ingest_date handles empty API response gracefully."""
-        ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id, api_key="test-key")
+        ingester = OddsIngester(
+            pool=mock_pool, workspace_id=workspace_id, api_key="test-key"
+        )
 
-        with patch("baseball.ingestion.odds.HistoricalLoaderFactory.fetch_api_json_stream") as mock_fetch:
+        with patch(
+            "baseball.ingestion.odds.HistoricalLoaderFactory.fetch_api_json_stream"
+        ) as mock_fetch:
             mock_fetch.return_value = []
             result = await ingester._ingest_date(
                 date(2023, 4, 15),
@@ -268,11 +296,17 @@ class TestIngestSeason:
     """Tests for OddsIngester._ingest_season method."""
 
     @pytest.mark.asyncio
-    async def test_ingest_season_calls_ingest_date_for_each_day(self, mock_pool, workspace_id):
+    async def test_ingest_season_calls_ingest_date_for_each_day(
+        self, mock_pool, workspace_id
+    ):
         """_ingest_season calls _ingest_date for each day in season."""
-        ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id, api_key="test-key")
+        ingester = OddsIngester(
+            pool=mock_pool, workspace_id=workspace_id, api_key="test-key"
+        )
 
-        with patch.object(ingester, "_ingest_date", new_callable=AsyncMock) as mock_date:
+        with patch.object(
+            ingester, "_ingest_date", new_callable=AsyncMock
+        ) as mock_date:
             mock_date.return_value = IngestResult(rows_processed=10, rows_inserted=10)
             result = await ingester._ingest_season(
                 2023,
@@ -295,9 +329,13 @@ class TestIngestAll:
     @pytest.mark.asyncio
     async def test_ingest_all_calls_ingest_date(self, mock_pool, workspace_id):
         """_ingest_all calls _ingest_date for current date."""
-        ingester = OddsIngester(pool=mock_pool, workspace_id=workspace_id, api_key="test-key")
+        ingester = OddsIngester(
+            pool=mock_pool, workspace_id=workspace_id, api_key="test-key"
+        )
 
-        with patch.object(ingester, "_ingest_date", new_callable=AsyncMock) as mock_date:
+        with patch.object(
+            ingester, "_ingest_date", new_callable=AsyncMock
+        ) as mock_date:
             mock_date.return_value = IngestResult(rows_processed=100, rows_inserted=100)
             result = await ingester._ingest_all(
                 "baseball",

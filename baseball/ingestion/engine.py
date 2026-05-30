@@ -50,25 +50,28 @@ class IngestEngine:
             Number of rows loaded
         """
         async with self.pool.connection() as conn:
-            with file_path.open("r", encoding=encoding) as fh:
-                col_clause = f"({', '.join(columns)})" if columns else ""
-                sql = f"""
-                    COPY {table_name}{col_clause}
-                    FROM STDIN
-                    WITH (
-                        FORMAT csv,
-                        HEADER true,
-                        DELIMITER '{delimiter}',
-                        NULL '{null}'
-                    )
-                """
-                cursor = conn.cursor()
-                await cursor.copy_expert(sql, fh)
-                await conn.commit()
+            col_clause = f"({', '.join(columns)})" if columns else ""
+            sql = f"""
+                COPY {table_name}{col_clause}
+                FROM STDIN
+                WITH (
+                    FORMAT csv,
+                    HEADER true,
+                    DELIMITER '{delimiter}',
+                    NULL '{null}'
+                )
+            """
+            # psycopg v3 async copy: use cursor.copy() context manager
+            async with conn.cursor().copy(sql) as copy:
+                with file_path.open("rb") as fh:
+                    while data := fh.read(65536):  # Read in 64KB chunks
+                        await copy.write(data)
+            await conn.commit()
 
-                # Return count
-                result = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
-                return result.fetchone()[0]
+            # Return count
+            result = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+            row = await result.fetchone()
+            return row[0]
 
     async def ingest_raw_jsonb(
         self,
@@ -115,7 +118,7 @@ class IngestEngine:
             params.update(extra_values)
 
             result = await conn.execute(sql, params)
-            pk = result.fetchone()[0]
+            pk = (await result.fetchone())[0]
             await conn.commit()
             return pk
 
@@ -176,7 +179,7 @@ class IngestEngine:
                     "source": identity_source,
                 },
             )
-            return result.fetchone()[0]
+            return (await result.fetchone())[0]
 
     async def record_ingest_run(
         self,
@@ -210,7 +213,7 @@ class IngestEngine:
                     "error": error_message,
                 },
             )
-            return str(result.fetchone()[0])
+            return str((await result.fetchone())[0])
 
     async def complete_ingest_run(
         self,

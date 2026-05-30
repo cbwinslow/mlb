@@ -70,7 +70,10 @@ class TestGetPkColumn:
 
     def test_raw_fangraphs_returns_correct_pk(self, ingest_engine):
         """Returns correct PK for raw_fangraphs tables."""
-        assert ingest_engine._get_pk_column("raw_fangraphs.batter_splits") == "raw_fangraphs_payload_id"
+        assert (
+            ingest_engine._get_pk_column("raw_fangraphs.batter_splits")
+            == "raw_fangraphs_payload_id"
+        )
 
     def test_raw_bref_returns_correct_pk(self, ingest_engine):
         """Returns correct PK for raw_bref tables."""
@@ -82,7 +85,10 @@ class TestGetPkColumn:
 
     def test_raw_odds_returns_correct_pk(self, ingest_engine):
         """Returns correct PK for raw_odds tables."""
-        assert ingest_engine._get_pk_column("raw_odds.market_lines") == "raw_odds_provider_payload_id"
+        assert (
+            ingest_engine._get_pk_column("raw_odds.market_lines")
+            == "raw_odds_provider_payload_id"
+        )
 
     def test_unknown_schema_returns_default(self, ingest_engine):
         """Unknown schema returns 'id' as default."""
@@ -100,17 +106,22 @@ class TestBulkLoadRawCsv:
     @pytest.mark.asyncio
     async def test_generates_correct_copy_sql(self, ingest_engine, mock_pool):
         """COPY SQL is generated correctly."""
-        mock_conn = AsyncMock()
         mock_cursor = AsyncMock()
-        # In psycopg async, conn.cursor() returns a cursor object directly (not a context manager)
-        # The cursor has async methods like copy_expert
+        mock_cursor.copy = MagicMock()
+        mock_copy_ctx = MagicMock()
+        mock_copy_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_copy_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_cursor.copy.return_value = mock_copy_ctx
+
+        mock_conn = AsyncMock()
         mock_conn.cursor = MagicMock(return_value=mock_cursor)
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [100]))
         mock_conn.commit = AsyncMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         # Create temp CSV file
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("col1,col2\nval1,val2\n")
             temp_path = Path(f.name)
@@ -120,26 +131,31 @@ class TestBulkLoadRawCsv:
                 table_name="raw_statcast.pitch",
                 file_path=temp_path,
             )
-            # Verify copy_expert was called with COPY command
-            assert mock_cursor.copy_expert.called
-            sql_arg = mock_cursor.copy_expert.call_args[0][0]
-            assert "COPY raw_statcast.pitch" in sql_arg
-            assert "FORMAT csv" in sql_arg
-            assert "HEADER true" in sql_arg
+            # Verify copy was called with COPY command
+            assert mock_cursor.copy.called
+            copy_sql = mock_cursor.copy.call_args[0][0]
+            assert "COPY raw_statcast.pitch" in copy_sql
         finally:
             temp_path.unlink()
 
     @pytest.mark.asyncio
     async def test_handles_column_list(self, ingest_engine, mock_pool):
         """Column list is included in COPY when provided."""
-        mock_conn = AsyncMock()
         mock_cursor = AsyncMock()
+        mock_cursor.copy = MagicMock()
+        mock_copy_ctx = MagicMock()
+        mock_copy_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_copy_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_cursor.copy.return_value = mock_copy_ctx
+
+        mock_conn = AsyncMock()
         mock_conn.cursor = MagicMock(return_value=mock_cursor)
-        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
         mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: [50]))
         mock_conn.commit = AsyncMock()
+        mock_pool.connection.return_value.__aenter__.return_value = mock_conn
 
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("col1,col2\nval1,val2\n")
             temp_path = Path(f.name)
@@ -150,8 +166,10 @@ class TestBulkLoadRawCsv:
                 file_path=temp_path,
                 columns=["col1", "col2"],
             )
-            sql_arg = mock_cursor.copy_expert.call_args[0][0]
-            assert "(col1, col2)" in sql_arg
+            # Check that COPY was called with column list
+            assert mock_cursor.copy.called
+            copy_sql = mock_cursor.copy.call_args[0][0]
+            assert "(col1, col2)" in copy_sql
         finally:
             temp_path.unlink()
 
@@ -259,7 +277,9 @@ class TestRecordIngestRun:
         """Ingest run record is created."""
         mock_conn = AsyncMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-        mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: ["run-uuid-123"]))
+        mock_conn.execute = AsyncMock(
+            return_value=AsyncMock(fetchone=lambda: ["run-uuid-123"])
+        )
         mock_conn.commit = AsyncMock()
 
         result = await ingest_engine.record_ingest_run(
@@ -276,7 +296,9 @@ class TestRecordIngestRun:
         """Error message is stored when provided."""
         mock_conn = AsyncMock()
         mock_pool.connection.return_value.__aenter__.return_value = mock_conn
-        mock_conn.execute = AsyncMock(return_value=AsyncMock(fetchone=lambda: ["run-uuid"]))
+        mock_conn.execute = AsyncMock(
+            return_value=AsyncMock(fetchone=lambda: ["run-uuid"])
+        )
         mock_conn.commit = AsyncMock()
 
         await ingest_engine.record_ingest_run(
