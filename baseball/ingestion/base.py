@@ -78,16 +78,17 @@ class BaseIngester(ABC):
         Returns:
             The raw request UUID for the specific source.
         """
-        result = await self.pool.execute(
-            """
-            INSERT INTO meta.source_file (file_path, file_hash, ingest_run_id)
-            VALUES (%s, %s, %s)
-            RETURNING source_file_id
-            """,
-            (f"{self.source_code}_ingest", None, ingest_run_id),
-        )
-        row = await result.fetchone()
-        return row[0] if row else ingest_run_id
+        async with self.pool.connection() as conn:
+            result = await conn.execute(
+                """
+                INSERT INTO meta.source_file (file_path, file_hash, ingest_run_id)
+                VALUES (%s, %s, %s)
+                RETURNING source_file_id
+                """,
+                (f"{self.source_code}_ingest", None, ingest_run_id),
+            )
+            row = await result.fetchone()
+            return row[0] if row else ingest_run_id
 
     async def _get_source_endpoint_id(self, endpoint_code: str) -> int:
         """Get source_endpoint_id for tracking.

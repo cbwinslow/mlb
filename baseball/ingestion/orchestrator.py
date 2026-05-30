@@ -153,15 +153,21 @@ class IngestionOrchestrator:
         metadata: Optional[dict] = None,
     ) -> AsyncIterator[IngestRunInfo]:
         """Create an ingest_run context without storing state on self."""
-        async with self.pool.connection() as conn:
-            run_id = await start_ingest_run(conn, endpoint_id, metadata or {})
-            run_info = IngestRunInfo(
-                ingest_run_id=run_id,
-                source_endpoint_id=endpoint_id,
-                started_at=datetime.now(timezone.utc),
-            )
+        run_id = None
         try:
-            yield run_info
-        finally:
-            async with self.pool.connection() as conn:
-                await finish_ingest_run(conn, run_id, status="succeeded")
+            async with pool.connection() as conn:
+                run_id = await start_ingest_run(conn, endpoint_id, metadata or {})
+                run_info = IngestRunInfo(
+                    ingest_run_id=run_id,
+                    source_endpoint_id=endpoint_id,
+                    started_at=datetime.now(timezone.utc),
+                )
+            try:
+                yield run_info
+            finally:
+                if run_id is not None:
+                    async with pool.connection() as conn:
+                        await finish_ingest_run(conn, run_id, status="succeeded")
+        except Exception:
+            # If start_ingest_run failed, run_id will be None and we shouldn't try to finish
+            raise
