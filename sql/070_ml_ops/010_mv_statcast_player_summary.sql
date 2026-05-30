@@ -88,16 +88,16 @@ SELECT
     ROUND(AVG(cp.estimated_ba_using_speedangle)::NUMERIC, 3)   AS avg_xba,
     ROUND(AVG(cp.estimated_woba_using_speedangle)::NUMERIC, 3) AS avg_xwoba,
     ROUND(AVG(cp.estimated_slg_using_speedangle)::NUMERIC, 3)  AS avg_xslg,
-    ROUND(AVG(cp.estimated_obp_using_speedangle)::NUMERIC, 3)  AS avg_xobp,
+    ROUND(AVG(cp.estimated_obp)::NUMERIC, 3)                 AS avg_xobp,
 
     -- Spray
     ROUND(AVG(cp.hc_x)::NUMERIC, 1)    AS avg_spray_x,
     ROUND(AVG(cp.hc_y)::NUMERIC, 1)    AS avg_spray_y,
 
     -- Run value
-    ROUND(SUM(cp.delta_run_exp)::NUMERIC, 2)       AS total_delta_run_exp,
-    ROUND(SUM(cp.delta_home_run_exp)::NUMERIC, 4)  AS total_delta_hr_exp,
-    ROUND(AVG(cp.delta_run_exp)::NUMERIC, 4)       AS avg_delta_run_exp_per_pitch,
+    ROUND(SUM(cp.delta_run_exp)::NUMERIC, 2)        AS total_delta_run_exp,
+    ROUND(SUM(cp.delta_pitcher_run_exp)::NUMERIC, 4)  AS total_delta_hr_exp,
+    ROUND(AVG(cp.delta_run_exp)::NUMERIC, 4)        AS avg_delta_run_exp_per_pitch,
 
     -- Metadata
     NOW()                               AS refreshed_at
@@ -157,14 +157,14 @@ SELECT
     ROUND(AVG(cp.estimated_ba_using_speedangle)::NUMERIC, 3)   AS avg_xba,
     ROUND(AVG(cp.estimated_woba_using_speedangle)::NUMERIC, 3) AS avg_xwoba,
     ROUND(AVG(cp.estimated_slg_using_speedangle)::NUMERIC, 3)  AS avg_xslg,
-    ROUND(AVG(cp.estimated_obp_using_speedangle)::NUMERIC, 3)  AS avg_xobp,
+    ROUND(AVG(cp.estimated_obp)::NUMERIC, 3)                AS avg_xobp,
 
-    NULL::NUMERIC                       AS avg_spray_x,
-    NULL::NUMERIC                       AS avg_spray_y,
+    NULL::NUMERIC                        AS avg_spray_x,
+    NULL::NUMERIC                        AS avg_spray_y,
 
-    ROUND(SUM(cp.delta_run_exp)::NUMERIC, 2)       AS total_delta_run_exp,
-    ROUND(SUM(cp.delta_home_run_exp)::NUMERIC, 4)  AS total_delta_hr_exp,
-    ROUND(AVG(cp.delta_run_exp)::NUMERIC, 4)       AS avg_delta_run_exp_per_pitch,
+    ROUND(SUM(cp.delta_run_exp)::NUMERIC, 2)        AS total_delta_run_exp,
+    ROUND(SUM(cp.delta_pitcher_run_exp)::NUMERIC, 4)  AS total_delta_hr_exp,
+    ROUND(AVG(cp.delta_run_exp)::NUMERIC, 4)        AS avg_delta_run_exp_per_pitch,
 
     NOW()                               AS refreshed_at
 

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS core.team (
     lahman_team_id TEXT,
     bbref_team_id TEXT,
     fangraphs_team_id TEXT,
+    statcast_team_id TEXT,                   -- MLB codes like NYY, LAD
     franchise_id TEXT,
     team_name TEXT NOT NULL,
     city_name TEXT,

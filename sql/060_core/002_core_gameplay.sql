@@ -74,6 +74,18 @@ CREATE TABLE IF NOT EXISTS core.pitches (
     horizontal_break    NUMERIC(4,2),
     plate_x             NUMERIC(4,2),
     plate_z             NUMERIC(4,2),
+    -- Additional tracking fields
+    hit_location        SMALLINT,          -- 1-39 field location code
+    hit_coordinate_x    NUMERIC(5,1),      -- hc_x spray chart coordinate
+    hit_coordinate_y    NUMERIC(5,1),      -- hc_y spray chart coordinate
+    launch_speed        NUMERIC(4,1),      -- exit velocity mph
+    launch_angle        NUMERIC(4,1),      -- launch angle degrees
+    zone                SMALLINT,          -- strike zone 1-11
+    arm_angle           NUMERIC(4,1),      -- pitcher arm slot degrees
+    effective_speed     NUMERIC(4,1),      -- effective velocity mph
+    spin_axis           NUMERIC(4,1),      -- spin axis degrees
+    bat_speed           NUMERIC(4,1),      -- bat speed at contact mph (2024+)
+    swing_length        NUMERIC(4,1),      -- swing path length ft (2024+)
     created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     CONSTRAINT uniq_pitch_per_pa UNIQUE (plate_appearance_id, pitch_sequence_num)
 );

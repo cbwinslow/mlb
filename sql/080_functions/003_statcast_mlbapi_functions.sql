@@ -116,7 +116,19 @@ CREATE OR REPLACE FUNCTION util.ingest_statcast_play(
     -- Venue/team IDs are required to satisfy core.games FKs
     p_venue_id           BIGINT,
     p_home_team_id       BIGINT,
-    p_away_team_id       BIGINT
+    p_away_team_id       BIGINT,
+    -- Additional tracking fields
+    p_hit_location       SMALLINT,
+    p_hit_coordinate_x   NUMERIC(5,1),
+    p_hit_coordinate_y   NUMERIC(5,1),
+    p_launch_speed       NUMERIC(4,1),
+    p_launch_angle       NUMERIC(4,1),
+    p_zone               SMALLINT,
+    p_arm_angle          NUMERIC(4,1),
+    p_effective_speed    NUMERIC(4,1),
+    p_spin_axis          NUMERIC(4,1),
+    p_bat_speed          NUMERIC(4,1),
+    p_swing_length       NUMERIC(4,1)
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -206,7 +218,10 @@ BEGIN
     INSERT INTO core.pitches (
         plate_appearance_id, pitch_sequence_num, balls_before, strikes_before,
         pitch_type, pitch_call, release_velocity, spin_rate,
-        induced_vertical_break, horizontal_break, plate_x, plate_z
+        induced_vertical_break, horizontal_break, plate_x, plate_z,
+        hit_location, hit_coordinate_x, hit_coordinate_y,
+        launch_speed, launch_angle, zone, arm_angle,
+        effective_speed, spin_axis, bat_speed, swing_length
     )
     VALUES (
         v_plate_appearance_id,
@@ -220,7 +235,18 @@ BEGIN
         p_induced_vertical_break,
         p_horizontal_break,
         p_plate_x,
-        p_plate_z
+        p_plate_z,
+        p_hit_location,
+        p_hit_coordinate_x,
+        p_hit_coordinate_y,
+        p_launch_speed,
+        p_launch_angle,
+        p_zone,
+        p_arm_angle,
+        p_effective_speed,
+        p_spin_axis,
+        p_bat_speed,
+        p_swing_length
     )
     ON CONFLICT (plate_appearance_id, pitch_sequence_num) DO NOTHING
     RETURNING pitch_id INTO v_pitch_id;

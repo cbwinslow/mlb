@@ -32,13 +32,17 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
         REFERENCES raw_statcast.search_file(statcast_search_file_id)
         ON UPDATE RESTRICT
         ON DELETE CASCADE,
+    ingest_run_id UUID
+        REFERENCES meta.ingest_run(ingest_run_id)
+        ON UPDATE RESTRICT
+        ON DELETE SET NULL,
 
     -- Core identifiers
     pitch_type TEXT,
     game_date DATE,
     game_year INT,
     game_pk BIGINT,
-    game_id TEXT,                          -- Retrosheet-style cross-source join key e.g. TEX202304060
+    game_id TEXT,
     at_bat_number INT,
     pitch_number INT,
 
@@ -47,9 +51,6 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     batter BIGINT,
     pitcher BIGINT,
     fielder_2 BIGINT,
-    umpire BIGINT,
-    pitcher_1 BIGINT,
-    fielder_2_1 BIGINT,
     fielder_3 BIGINT,
     fielder_4 BIGINT,
     fielder_5 BIGINT,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     fielder_7 BIGINT,
     fielder_8 BIGINT,
     fielder_9 BIGINT,
+    umpire BIGINT,
 
     -- Pitch outcome
     events TEXT,
@@ -71,6 +73,8 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     p_throws TEXT,
     home_team TEXT,
     away_team TEXT,
+
+    -- Count / baserunners / fielding alignment
     hit_location SMALLINT,
     bb_type TEXT,
     balls SMALLINT,
@@ -94,8 +98,10 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     post_home_score INT,
     post_bat_score INT,
     post_fld_score INT,
-    home_score_ct INT,                     -- home score at moment of pitch (not post-PA)
-    away_score_ct INT,                     -- away score at moment of pitch (not post-PA)
+    home_score_diff INT,
+    bat_score_diff INT,
+    home_win_exp NUMERIC(10,5),
+    bat_win_exp NUMERIC(10,5),
 
     -- Release point and velocity
     release_speed NUMERIC(8,3),
@@ -105,15 +111,17 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     release_extension NUMERIC(10,5),
     release_spin_rate NUMERIC(10,5),
     effective_speed NUMERIC(8,3),
-    arm_angle NUMERIC(8,3),               -- pitcher arm slot angle at release
+    arm_angle NUMERIC(8,3),
 
-    -- Trajectory physics
+    -- Trajectory physics (starting velocity components)
     vx0 NUMERIC(12,6),
     vy0 NUMERIC(12,6),
     vz0 NUMERIC(12,6),
     ax NUMERIC(12,6),
     ay NUMERIC(12,6),
     az NUMERIC(12,6),
+
+    -- Movement / plate location
     pfx_x NUMERIC(10,5),
     pfx_z NUMERIC(10,5),
     plate_x NUMERIC(10,5),
@@ -123,9 +131,9 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     spin_axis NUMERIC(8,3),
 
     -- Break metrics (API-derived)
-    api_break_z_with_gravity NUMERIC(10,5),  -- vertical break including gravity effect
-    api_break_x_arm NUMERIC(10,5),            -- horizontal break from arm-side perspective
-    api_break_x_batter_in NUMERIC(10,5),      -- horizontal break from batter perspective
+    api_break_z_with_gravity NUMERIC(10,5),
+    api_break_x_arm NUMERIC(10,5),
+    api_break_x_batter_in NUMERIC(10,5),
 
     -- Deprecated / legacy fields retained for historical completeness
     spin_dir NUMERIC(10,5),
@@ -145,16 +153,22 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     launch_speed_angle SMALLINT,
 
     -- Bat tracking (2024+)
-    bat_speed NUMERIC(8,3),               -- bat speed at contact in mph
-    swing_length NUMERIC(8,3),            -- swing path length in feet
+    bat_speed NUMERIC(8,3),
+    swing_length NUMERIC(8,3),
+    attack_angle NUMERIC(8,3),
+    attack_direction NUMERIC(8,3),
+    swing_path_tilt NUMERIC(8,3),
+    intercept_ball_minus_batter_pos_x_inches NUMERIC(8,3),
+    intercept_ball_minus_batter_pos_y_inches NUMERIC(8,3),
 
     -- Sprint / Outs Above Average context
-    hyper_speed NUMERIC(8,3),             -- baserunner sprint speed on batted ball events
+    hyper_speed NUMERIC(8,3),
 
     -- Expected outcome metrics
     estimated_ba_using_speedangle NUMERIC(8,5),
+    estimated_obp NUMERIC(8,5),
     estimated_woba_using_speedangle NUMERIC(8,5),
-    estimated_slg_using_speedangle NUMERIC(8,5),   -- xSLG
+    estimated_slg_using_speedangle NUMERIC(8,5),
     woba_value NUMERIC(8,5),
     woba_denom NUMERIC(8,5),
     babip_value NUMERIC(8,5),
@@ -163,13 +177,22 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
     -- Win/run expectancy
     delta_home_win_exp NUMERIC(10,5),
     delta_run_exp NUMERIC(10,5),
-    delta_pitcher_run_exp NUMERIC(10,5),   -- pitcher-perspective run expectancy delta
+    delta_pitcher_run_exp NUMERIC(10,5),
 
     -- Pitcher context / fatigue
-    n_thruorder_pitcher INT,               -- how many times pitcher has been through the lineup
-    n_priorpa_thisgame_pitcher INT,        -- prior PAs this batter has seen this pitcher today
-    pitcher_days_since_prev_game INT,      -- rest days for pitcher
-    batter_days_since_prev_game INT,       -- rest days for batter
+    n_thruorder_pitcher INT,
+    n_priorpa_thisgame_pitcher INT,
+    n_priorpa_thisgame_player_at_bat INT,
+    pitcher_days_since_prev_game INT,
+    pitcher_days_until_next_game INT,
+    batter_days_since_prev_game INT,
+    batter_days_until_next_game INT,
+
+    -- Age / player context
+    age_pit_legacy NUMERIC(5,2),
+    age_bat_legacy NUMERIC(5,2),
+    age_pit NUMERIC(5,2),
+    age_bat NUMERIC(5,2),
 
     -- Audit / load metadata
     row_hash BYTEA,
@@ -182,7 +205,7 @@ CREATE TABLE IF NOT EXISTS raw_statcast.pitch (
 
 COMMENT ON TABLE raw_statcast.pitch IS
     'Raw Statcast pitch-level rows modeled from Baseball Savant CSV documentation and pybaseball extraction behavior. '
-    'Captures all available columns including 2024+ bat tracking fields (bat_speed, swing_length), '
+    'Captures all 118+ available columns including 2024+ bat tracking fields (bat_speed, swing_length, attack_angle, etc.), '
     'API-derived break metrics, expected outcome stats, and pitcher/batter context columns.';
 
 COMMENT ON COLUMN raw_statcast.pitch.game_id IS
@@ -195,10 +218,6 @@ COMMENT ON COLUMN raw_statcast.pitch.arm_angle IS
     'Pitcher arm slot angle at release point in degrees.';
 COMMENT ON COLUMN raw_statcast.pitch.hyper_speed IS
     'Baserunner sprint speed on batted ball events (Statcast Hyper Speed metric).';
-COMMENT ON COLUMN raw_statcast.pitch.home_score_ct IS
-    'Home team score at the moment the pitch is thrown, as opposed to post_home_score which reflects the PA outcome.';
-COMMENT ON COLUMN raw_statcast.pitch.away_score_ct IS
-    'Away team score at the moment the pitch is thrown.';
 COMMENT ON COLUMN raw_statcast.pitch.delta_pitcher_run_exp IS
     'Pitcher-side run expectancy delta for the pitch event.';
 COMMENT ON COLUMN raw_statcast.pitch.estimated_slg_using_speedangle IS
@@ -217,6 +236,25 @@ COMMENT ON COLUMN raw_statcast.pitch.api_break_x_arm IS
     'Horizontal pitch break in inches from the arm-side perspective.';
 COMMENT ON COLUMN raw_statcast.pitch.api_break_x_batter_in IS
     'Horizontal pitch break in inches from the batter-in perspective.';
+
+COMMENT ON COLUMN raw_statcast.pitch.estimated_obp IS
+    'Expected OBP derived from launch speed and launch angle.';
+COMMENT ON COLUMN raw_statcast.pitch.age_pit IS
+    'Pitcher age at time of pitch (current calculation).';
+COMMENT ON COLUMN raw_statcast.pitch.age_bat IS
+    'Batter age at time of pitch (current calculation).';
+COMMENT ON COLUMN raw_statcast.pitch.attack_angle IS
+    'Bat attack angle at contact in degrees (bat tracking).';
+COMMENT ON COLUMN raw_statcast.pitch.attack_direction IS
+    'Bat attack direction at contact in degrees (bat tracking).';
+COMMENT ON COLUMN raw_statcast.pitch.swing_path_tilt IS
+    'Bat swing path tilt angle in degrees (bat tracking).';
+COMMENT ON COLUMN raw_statcast.pitch.n_priorpa_thisgame_player_at_bat IS
+    'Prior plate appearances by this batter against this pitcher in the game.';
+COMMENT ON COLUMN raw_statcast.pitch.pitcher_days_until_next_game IS
+    'Days until pitchers next scheduled game.';
+COMMENT ON COLUMN raw_statcast.pitch.batter_days_until_next_game IS
+    'Days until batters next scheduled game.';
 
 CREATE TABLE IF NOT EXISTS raw_statcast.lookup_observation (
     raw_statcast_lookup_observation_id BIGSERIAL PRIMARY KEY,
