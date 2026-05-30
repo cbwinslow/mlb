@@ -80,3 +80,4 @@ CREATE TABLE IF NOT EXISTS core.venue (
 COMMENT ON TABLE core.venue IS
     'Canonical venue/park dimension built from staged identity bridges.';
 
+COMMIT;

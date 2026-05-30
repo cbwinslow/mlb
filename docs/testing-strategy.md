@@ -831,4 +831,3 @@ Before committing tests, verify:
 - [ ] Test is deterministic (same result every run)
 - [ ] Test is fast (< 1 second for unit tests)
 - [ ] Test follows existing patterns in the codebase
-

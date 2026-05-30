@@ -1,7 +1,7 @@
 # AGENTS.md — MLB Database Project
 
 > **Every AI agent working on this repo must read this file before making any changes.**
-> Last updated: 2026-05-30 (raw_statcast.pitch contains all 118 pybaseball fields + audit FKs)
+> Last updated: 2026-05-30 (pybaseball mapping analysis complete - added statcast advanced + mlbapi team stats tables)
 
 ---
 
@@ -71,6 +71,8 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 | `sql/040_raw/006_raw_web_sources.sql` | `raw_fangraphs`, `raw_bref`, `raw_espn`, `raw_odds` | ✅ Complete |
 | `sql/040_raw/006_raw_web_sources_migration_v2.sql` | Additional typed tables for all web sources | ✅ Added 2026-05-28 (batter/pitcher splits, baserunning, plate_discipline, schedule, scores, market_lines, boxscore_batting/pitching, player_news, line_movement) |
 | `sql/040_raw/007_raw_vector.sql` | `raw_vector` | ✅ Added 2026-05-26 (embeddings, metadata, qdrant collections) |
+| `sql/040_raw/008_raw_statcast_advanced.sql` | `raw_statcast` | ✅ Added 2026-05-30 (batter/pitcher season stats, arsenal, sprint speed, OAA, percentiles) |
+| `sql/040_raw/009_raw_mlbapi_team_stats.sql` | `raw_mlbapi` | ✅ Added 2026-05-30 (standings, team batting/pitching stats, league stats, draft) |
 
 ---
 
@@ -172,6 +174,12 @@ A comprehensive PostgreSQL baseball analytics database that ingests, stores, and
 - [x] **Step 13:** Audit `stg.player_identity` for all 5 cross-source keys
     - Added unique partial indexes for bbref_player_id and fangraphs_player_id
     - File: `sql/090_constraints_indexes/005_staging_indexes.sql`
+### Completed ✅
+- [x] **Pybaseball data mapping analysis** - Identified 18+ additional endpoints beyond basic statcast
+  - Created docs/pybaseball-data-mapping.md with complete function inventory
+  - Added sql/040_raw/008_raw_statcast_advanced.sql (7 tables: batter/pitcher season stats, arsenal, sprint speed, OAA, percentiles)
+  - Added sql/040_raw/009_raw_mlbapi_team_stats.sql (5 tables: standings, team stats, league stats, draft)
+  - Total 12 new tables mapped for player-level Statcast aggregations and team/league stats
 - [x] **Issue #17:** Create ingestion Python components
     - Files: `baseball/ingestion/orchestrator.py`, `baseball/ingestion/loaders.py`, `baseball/ingestion/engine.py`
     - Added ingest commands to CLI: `baseball ingest lahman`, `baseball ingest retrosheet`, etc.
