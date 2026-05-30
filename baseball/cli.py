@@ -246,10 +246,19 @@ def ingest_statcast(
         ..., envvar="DATABASE_URL", help="PostgreSQL connection string."
     ),
     start_date: Optional[str] = typer.Option(
-        None, "--start", "-S", help="Start date (YYYY-MM-DD)."
+        None, "--start", help="Start date (YYYY-MM-DD)."
     ),
     end_date: Optional[str] = typer.Option(
-        None, "--end", "-E", help="End date (YYYY-MM-DD)."
+        None, "--end", help="End date (YYYY-MM-DD)."
+    ),
+    season: Optional[int] = typer.Option(
+        None, "--season", "-s", help="Season year (alternative to --start/--end)."
+    ),
+    all_seasons: bool = typer.Option(
+        False, "--all", help="Ingest all available Statcast data (2015-present)."
+    ),
+    process_to_core: bool = typer.Option(
+        False, "--process-to-core", help="Process raw data to core tables after ingest."
     ),
 ) -> None:
     """Load Statcast pitch telemetry.
@@ -261,19 +270,25 @@ def ingest_statcast(
     from psycopg_pool import AsyncConnectionPool
     from baseball.ingestion.statcast import StatcastIngester
 
-    # Convert SQLAlchemy URL to psycopg format
     pg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     async def _run():
         async with AsyncConnectionPool(pg_url) as pool:
             ingester = StatcastIngester(pool, workspace_id=None)
-            if start_date and end_date:
+            if all_seasons:
+                from baseball.ingestion.statcast import StatcastFullIngester
+                full_ingester = StatcastFullIngester(pool, workspace_id=None)
+                result = await full_ingester.ingest_all(process_to_core=process_to_core)
+            elif season:
+                result = await ingester.ingest(season=season)
+            elif start_date and end_date:
                 result = await ingester.ingest(
                     start_date=date.fromisoformat(start_date),
                     end_date=date.fromisoformat(end_date),
+                    process_to_core=process_to_core,
                 )
             else:
-                result = await ingester.ingest(season=2023)
+                result = await ingester.ingest(season=2023, process_to_core=process_to_core)
             console.print(
                 f"[green]Statcast ingest complete: {result.rows_inserted} rows[/green]"
             )
